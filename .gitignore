@@ -1,0 +1,20 @@
+# macOS System
+.DS_Store
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+
+# Environment Variables & Secrets
+.env
+.env*.local
+
+# IDE & Editor Settings
+.vscode/
+.idea/
+
+# General Build / Distribution
+dist/
+build/
+*.log
