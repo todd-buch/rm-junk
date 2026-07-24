@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "scan": {
+    "includeHomeLibraryCaches": true,
+    "includeLeftoverAppData": true,
+    "includeLargeFiles": true,
+    "includeOldInstallers": true,
+    "cacheMinBytes": 52428800,
+    "cacheMinAgeDays": 3,
+    "largeFileMinBytes": 1073741824,
+    "largeFileRoots": ["~"],
+    "installerMinBytes": 104857600,
+    "installerMinAgeDays": 30,
+    "maxDepth": 6,
+    "followSymlinks": false,
+    "minConfidenceForQueue": "medium"
+  },
+  "excludePaths": [
+    "~/Pictures",
+    "~/Movies",
+    "~/Music"
+  ],
+  "whitelist": [],
+  "background": {
+    "enabled": false,
+    "requireManualApproval": true,
+    "intervalMinutes": 1440,
+    "showMenuBarWhenFindings": true
+  },
+  "deletion": {
+    "moveToTrash": true,
+    "confirmEachItem": true
+  }
+}
