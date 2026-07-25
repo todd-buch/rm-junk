@@ -28,11 +28,13 @@ rm-junk …
 
 ```bash
 rm-junk init
-rm-junk scan --dry-run          # preview
-rm-junk scan                    # save findings
+rm-junk scan --dry-run             # preview
+rm-junk scan                       # save findings
 rm-junk list
-rm-junk delete <id>             # Trash (confirms)
-rm-junk keep <id>               # whitelist
+rm-junk delete <id> [id...]        # Trash specific finding(s) (confirms)
+rm-junk delete --all               # Trash all remaining pending findings
+rm-junk keep <id> [id...]          # Whitelist specific finding(s)
+rm-junk keep --all                 # Whitelist all remaining pending findings
 ```
 
 ## Scan performance
@@ -60,8 +62,8 @@ rm-junk scan --no-progress      # quiet
 | `init` | Create `settings.json` if missing |
 | `scan` | Run scanners; print + optionally save queue |
 | `list` | Pending findings |
-| `delete <id>` | Trash one finding (`-y` skips confirm) |
-| `keep <id>` | Whitelist path |
+| `delete <ids...> / --all` | Trash one or more findings by ID, or `--all` remaining pending (`-y` skips confirm) |
+| `keep <ids...> / --all` | Whitelist one or more findings by ID, or `--all` remaining pending |
 | `paths` | Show config/data locations |
 
 ## Config
