@@ -70,3 +70,56 @@ def test_roundtrip_example_file():
     data = json.loads(example.read_text(encoding="utf-8"))
     settings = parse_settings(data)
     assert settings.version == 1
+
+
+def test_size_parsing_and_formatting():
+    from rm_junk.config import parse_size, format_size
+    
+    # Test valid parsing
+    assert parse_size(0) == 0
+    assert parse_size("0") == 0
+    assert parse_size("0B") == 0
+    assert parse_size("100") == 100
+    assert parse_size("1024B") == 1024
+    assert parse_size("10KB") == 10 * 1024
+    assert parse_size("50MB") == 50 * 1024 * 1024
+    assert parse_size("1.5GB") == 1610612736
+    assert parse_size("1TB") == 1024 * 1024 * 1024 * 1024
+    
+    # Case insensitivity and whitespace handling
+    assert parse_size(" 100 mb ") == 100 * 1024 * 1024
+    assert parse_size("1.5 gb") == 1610612736
+    
+    # Invalid cases
+    with pytest.raises(ConfigError):
+        parse_size("50XB")
+    with pytest.raises(ConfigError):
+        parse_size("-5MB")
+    with pytest.raises(ConfigError):
+        parse_size(True)
+    with pytest.raises(ConfigError):
+        parse_size("abc")
+        
+    # Formatting
+    assert format_size(0) == "0B"
+    assert format_size(1024) == "1KB"
+    assert format_size(50 * 1024 * 1024) == "50MB"
+    assert format_size(1610612736) == "1.5GB"
+    assert format_size(123) == "123B"
+
+
+def test_settings_with_human_readable_sizes():
+    data = {
+        "scan": {
+            "cacheMinBytes": "25MB",
+            "logMinBytes": "1.5KB",
+            "devJunkMinBytes": "500B",
+            "largeFileMinBytes": "5GB",
+        }
+    }
+    settings = parse_settings(data)
+    assert settings.scan.cache_min_bytes == 25 * 1024 * 1024
+    assert settings.scan.log_min_bytes == int(1.5 * 1024)
+    assert settings.scan.dev_junk_min_bytes == 500
+    assert settings.scan.large_file_min_bytes == 5 * 1024 * 1024 * 1024
+
