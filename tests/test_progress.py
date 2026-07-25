@@ -103,20 +103,3 @@ def test_terminal_phase_resets_bar():
     p.close()
 
 
-def test_callback_progress_emits_bar_lines():
-    events: list[tuple[str, str, bool]] = []
-
-    def on_update(title: str, line: str, done: bool) -> None:
-        events.append((title, line, done))
-
-    from rm_junk.progress import CallbackProgress
-
-    p = CallbackProgress(on_update)
-    p.phase("Caches")
-    p.add_work(4)
-    p.tick(1, item="a")
-    p.tick(3, item="b")
-    p.close()
-    assert events
-    assert any("Caches" in e[1] or "Caches" in e[0] for e in events)
-    assert events[-1][2] is True

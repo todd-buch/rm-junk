@@ -33,7 +33,7 @@ def _print_finding(idx: int, finding, *, show_id: bool = True) -> None:
 def cmd_init(_args: argparse.Namespace) -> int:
     path = ensure_user_settings()
     print(f"Settings ready: {path}")
-    print("Edit that file to configure exclude paths, thresholds, and background mode.")
+    print("Edit that file to configure exclude paths, thresholds, and scan options.")
     return 0
 
 
@@ -163,26 +163,6 @@ def cmd_keep(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_menubar(args: argparse.Namespace) -> int:
-    """Always-on menu bar: Scan/Rerun, progress, findings Delete/Keep."""
-    config = Path(args.config) if args.config else None
-    try:
-        # Ensure settings exist and are valid before blocking on the UI.
-        load_settings(config)
-    except ConfigError as exc:
-        print(f"Config error: {exc}", file=sys.stderr)
-        return 1
-
-    from rm_junk.config import default_findings_path, project_root
-    from rm_junk.menubar import run_menu_bar
-
-    print(f"Menu bar running (project: {project_root()})", flush=True)
-    print(f"Findings file: {default_findings_path()}", flush=True)
-    print("Use the menu bar icon — Ctrl+C here also quits.", flush=True)
-    run_menu_bar(config_path=config)
-    return 0
-
-
 def cmd_paths(_args: argparse.Namespace) -> int:
     from rm_junk.config import default_findings_path, project_root
 
@@ -242,12 +222,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_keep = sub.add_parser("keep", help="Whitelist a finding path by id")
     p_keep.add_argument("id", help="Finding id from scan/list")
     p_keep.set_defaults(func=cmd_keep)
-
-    p_bar = sub.add_parser(
-        "menubar",
-        help="Always-on menu bar (scan/rerun, progress, delete/keep)",
-    )
-    p_bar.set_defaults(func=cmd_menubar)
 
     p_paths = sub.add_parser("paths", help="Print config/data file locations")
     p_paths.set_defaults(func=cmd_paths)

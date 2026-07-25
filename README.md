@@ -1,6 +1,8 @@
-# rm-junk
+# rm-junk (terminal)
 
-macOS utility that finds leftover junk — app caches, orphaned app data, old installers, and large files/folders — and lets **you** approve every removal.
+macOS **command-line** junk finder: leftover caches, orphaned app data, old installers, and large folders — with **manual approval** before anything is removed.
+
+This branch is the **standalone terminal app**. No menu bar, no GUI. A native Mac app plan lives in [`docs/mac-app-plan.md`](docs/mac-app-plan.md).
 
 Nothing is deleted automatically.
 
@@ -9,7 +11,7 @@ Nothing is deleted automatically.
 - macOS
 - Python 3.11+
 
-## Setup
+## Install
 
 ```bash
 cd rm-junk
@@ -18,85 +20,96 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-## Configure
+After install you can use either:
 
 ```bash
-python -m rm_junk init
+python -m rm_junk …
+# or
+rm-junk …
 ```
 
-Creates **project-local** files (same directory as this repo by default):
+## Quick start
 
-| File | Purpose |
+```bash
+# 1. Create local settings (once)
+rm-junk init
+
+# 2. Scan (progress bars in the terminal)
+rm-junk scan --dry-run          # preview only
+rm-junk scan                    # save pending findings
+
+# 3. Review & act
+rm-junk list
+rm-junk delete <id>             # move to Trash (confirms first)
+rm-junk keep <id>               # whitelist — never flag again
+```
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `init` | Create `settings.json` from the example if missing |
+| `scan` | Run scanners; print findings; optionally save queue |
+| `list` | Show pending findings from the last scan |
+| `delete <id>` | Trash one finding (prompt unless `-y`) |
+| `keep <id>` | Add path to whitelist and drop from pending |
+| `paths` | Print where settings/findings live |
+
+### `scan` flags
+
+| Flag | Meaning |
 |------|---------|
-| `settings.json` | Your config (gitignored) |
-| `findings.json` | Pending scan results (gitignored) |
+| `--dry-run` | Print results; do **not** write `findings.json` |
+| `--debug` | Verbose phase logs + current path names on the bar |
+| `--no-progress` | No progress bar |
+| `--queue-only` | Only keep findings at/above `minConfidenceForQueue` |
+| `--config PATH` | Use a specific settings file |
 
-Override the project directory with `RM_JUNK_HOME=/path/to/dir` if needed.
+## Config & data files
 
-Edit `settings.json` for thresholds, roots, and excludes. See `settings.example.json`.
+By default these sit in the **project directory** (this repo):
 
-| Key | Purpose |
-|-----|---------|
-| `scan.largeFileMinBytes` | Size threshold for large file/folder scan (default 1 GB) |
-| `scan.largeFileRoots` | Where large-item scan looks (default: `Library`, Docker, VMs — **not** whole home) |
-| `scan.maxDepth` | Max directory depth for large-item scan (default `4`) |
-| `scan.cacheMinBytes` / `cacheMinAgeDays` | Cache size + staleness gates |
-| `excludePaths` | Directories **never** entered (default includes Documents, Desktop, media) |
-| `whitelist` | Paths you chose to keep (also written by `keep`) |
-| `scan.workers` | Thread pool size (`0` = auto) |
+| File | Purpose | Git |
+|------|---------|-----|
+| `settings.json` | Your preferences | ignored |
+| `findings.json` | Pending scan results | ignored |
+| `settings.example.json` | Documented defaults | tracked |
 
-## Usage
-
-### CLI
+Override the project root with:
 
 ```bash
-# Scan (prints results + saves findings.json in the project dir)
-python -m rm_junk scan
-
-# Preview without saving
-python -m rm_junk scan --dry-run
-
-# Verbose progress details
-python -m rm_junk scan --debug
-
-# List / delete / whitelist
-python -m rm_junk list
-python -m rm_junk delete <id>
-python -m rm_junk keep <id>
-
-# Paths
-python -m rm_junk paths
+export RM_JUNK_HOME=~/.config/rm-junk
+rm-junk init
 ```
 
-### Menu bar (always on)
+### Important settings
 
-```bash
-python -m rm_junk menubar
-```
+| Key | Default idea |
+|-----|----------------|
+| `scan.largeFileRoots` | `~/Library`, Docker/VM paths — **not** whole home |
+| `scan.largeFileMinBytes` | 1 GB |
+| `scan.maxDepth` | 4 |
+| `scan.cacheMinBytes` / `cacheMinAgeDays` | Size + staleness gates for caches |
+| `excludePaths` | Never enter (Documents, Desktop, media by default) |
+| `whitelist` | Kept paths (also filled by `keep`) |
+| `scan.workers` | `0` = auto thread count |
+| `deletion.moveToTrash` | Prefer Trash over permanent delete |
 
-The **rm-junk** icon stays in the menu bar even with 0 findings.
+## What gets scanned
 
-| Menu | Action |
-|------|--------|
-| **Scan / Rerun** | Run scanners again |
-| Status line | Live progress bar (same style as the terminal) |
-| Findings | Each path with **Delete (Trash)** / **Keep (whitelist)** |
-| Quit | Exit the menu bar app |
+1. **Caches** — `~/Library/Caches`, container caches, optional Homebrew / Xcode DerivedData  
+2. **Leftovers** — dead LaunchAgents, orphaned saved state / prefs (conservative)  
+3. **Installers** — old large `.dmg` / `.pkg` / `.zip` in Downloads (shallow)  
+4. **Large files/folders** — under configured roots only  
 
-While scanning, the menu bar title shows a short progress percent/phase (e.g. `42% Caches`), and the status row shows the full bar.
-
-## macOS permissions
-
-- Many cache/orphan paths under `~/Library` work without special grants.
-- Privacy-sensitive areas (Mail, Messages, Safari, …) are **skipped** by design.
-- Full Disk Access helps complete large-file inventories under Library.
-- Permission errors are skipped; the scan does not crash.
+Privacy-sensitive Library areas (Mail, Messages, Safari, …) are skipped. System paths are hard-denied. This project directory is never suggested for deletion.
 
 ## Safety
 
-- Hard denylist: `/System`, `/usr`, `/Applications`, … and this project directory
-- Prefer **Trash** (`send2trash`) over permanent delete
-- No automatic deletions
+- Every removal is **explicit** (`delete` or future UI approval)
+- Prefer **Trash** via `send2trash`
+- Permission errors are skipped; scans do not crash
+- Full Disk Access (for Terminal / your shell) improves coverage under Library
 
 ## Development
 
@@ -104,6 +117,9 @@ While scanning, the menu bar title shows a short progress percent/phase (e.g. `4
 pytest
 ```
 
-## Project notes
+## Branches
 
-Local design hub: `context.md` (gitignored). Do not push feature branches until asked.
+| Branch | Scope |
+|--------|--------|
+| **`terminal/cli-v1`** (this) | Terminal-only CLI |
+| Future app branch | Menu bar / `.app` packaging — see `docs/mac-app-plan.md` |

@@ -32,12 +32,6 @@
     "~/Music"
   ],
   "whitelist": [],
-  "background": {
-    "enabled": false,
-    "requireManualApproval": true,
-    "intervalMinutes": 1440,
-    "showMenuBarWhenFindings": true
-  },
   "deletion": {
     "moveToTrash": true,
     "confirmEachItem": true

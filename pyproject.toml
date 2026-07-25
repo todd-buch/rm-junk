@@ -5,14 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "rm-junk"
 version = "0.1.0"
-description = "macOS junk finder: caches, leftovers, and large files — with manual approval"
+description = "macOS terminal junk finder: caches, leftovers, and large files — with manual approval"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "rm-junk contributors" }]
 dependencies = [
     "send2trash>=1.8.3",
-    "rumps>=0.4.0; sys_platform == 'darwin'",
 ]
 
 [project.optional-dependencies]
