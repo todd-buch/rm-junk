@@ -102,7 +102,8 @@ def cmd_scan(args: argparse.Namespace) -> int:
     store.replace_pending_with(findings)
     print(f"Saved {len(findings)} pending item(s) → {store.path}")
     print("Review:  rm-junk list")
-    print("Act:     rm-junk delete <id>   |   rm-junk keep <id>")
+    print("Act:     rm-junk delete <id> [id…]   |   rm-junk delete --all")
+    print("         rm-junk keep <id> [id…]     |   rm-junk keep --all")
     return 0
 
 
@@ -119,6 +120,19 @@ def cmd_list(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_pending(store: FindingStore, ids: list[str]):
+    """Resolve finding ids; support full hex ids only (not list numbers)."""
+    found = []
+    missing = []
+    for fid in ids:
+        finding = store.get(fid)
+        if finding is None or finding.status != FindingStatus.PENDING:
+            missing.append(fid)
+        else:
+            found.append(finding)
+    return found, missing
+
+
 def cmd_delete(args: argparse.Namespace) -> int:
     try:
         settings = load_settings(Path(args.config) if args.config else None)
@@ -127,32 +141,53 @@ def cmd_delete(args: argparse.Namespace) -> int:
         return 1
 
     store = FindingStore()
-    finding = store.get(args.id)
-    if finding is None or finding.status != FindingStatus.PENDING:
-        print(f"No pending finding with id {args.id}", file=sys.stderr)
-        return 1
+    if args.all:
+        targets = list(store.pending)
+        if not targets:
+            print("No pending findings to delete.")
+            return 0
+    else:
+        if not args.ids:
+            print("Pass one or more ids, or use --all.", file=sys.stderr)
+            return 1
+        targets, missing = _resolve_pending(store, args.ids)
+        for fid in missing:
+            print(f"No pending finding with id {fid}", file=sys.stderr)
+        if not targets:
+            return 1
 
-    policy = PathPolicy(settings)
-    if settings.deletion.confirm_each_item and not args.yes:
-        reply = input(f"Move to trash?\n  {finding.path}\n[y/N] ").strip().lower()
+    total = sum(f.size_bytes for f in targets)
+    action = "Trash" if settings.deletion.move_to_trash else "Delete"
+    print(f"{action} {len(targets)} item(s) (~{format_bytes(total)})?")
+    for f in targets:
+        print(f"  · {format_bytes(f.size_bytes):>10}  {f.path}")
+
+    if not args.yes:
+        reply = input(f"\nProceed? [y/N] ").strip().lower()
         if reply not in {"y", "yes"}:
             print("Cancelled.")
             return 0
 
-    try:
-        delete_path(
-            finding.path,
-            policy,
-            to_trash=settings.deletion.move_to_trash,
-        )
-    except DeletionError as exc:
-        print(f"Delete failed: {exc}", file=sys.stderr)
-        return 1
+    policy = PathPolicy(settings)
+    ok = 0
+    failed = 0
+    for finding in targets:
+        try:
+            delete_path(
+                finding.path,
+                policy,
+                to_trash=settings.deletion.move_to_trash,
+            )
+            store.mark(finding.id, FindingStatus.DELETED)
+            print(f"  ✓ {finding.path}")
+            ok += 1
+        except DeletionError as exc:
+            print(f"  ✗ {finding.path}: {exc}", file=sys.stderr)
+            failed += 1
 
-    store.mark(finding.id, FindingStatus.DELETED)
-    action = "Trashed" if settings.deletion.move_to_trash else "Deleted"
-    print(f"{action}: {finding.path}")
-    return 0
+    done = "Trashed" if settings.deletion.move_to_trash else "Deleted"
+    print(f"\n{done} {ok} item(s)" + (f", {failed} failed" if failed else ""))
+    return 1 if failed and not ok else 0
 
 
 def cmd_keep(args: argparse.Namespace) -> int:
@@ -163,16 +198,28 @@ def cmd_keep(args: argparse.Namespace) -> int:
         return 1
 
     store = FindingStore()
-    finding = store.get(args.id)
-    if finding is None or finding.status != FindingStatus.PENDING:
-        print(f"No pending finding with id {args.id}", file=sys.stderr)
-        return 1
+    if args.all:
+        targets = list(store.pending)
+        if not targets:
+            print("No pending findings to keep.")
+            return 0
+    else:
+        if not args.ids:
+            print("Pass one or more ids, or use --all.", file=sys.stderr)
+            return 1
+        targets, missing = _resolve_pending(store, args.ids)
+        for fid in missing:
+            print(f"No pending finding with id {fid}", file=sys.stderr)
+        if not targets:
+            return 1
 
-    whitelist = list(settings.whitelist) + [finding.path]
+    whitelist = list(settings.whitelist)
+    for finding in targets:
+        whitelist.append(finding.path)
+        store.mark(finding.id, FindingStatus.KEPT)
+        print(f"Whitelisted: {finding.path}")
     settings.save_whitelist(whitelist)
-    store.mark(finding.id, FindingStatus.KEPT)
-    print(f"Whitelisted: {finding.path}")
-    print(f"Updated: {settings.path}")
+    print(f"Updated: {settings.path}  ({len(targets)} kept)")
     return 0
 
 
@@ -227,13 +274,37 @@ def build_parser() -> argparse.ArgumentParser:
     p_list = sub.add_parser("list", help="List pending findings")
     p_list.set_defaults(func=cmd_list)
 
-    p_del = sub.add_parser("delete", help="Delete (trash) a finding by id")
-    p_del.add_argument("id", help="Finding id from scan/list")
+    p_del = sub.add_parser(
+        "delete",
+        help="Delete (trash) findings by id, or --all remaining pending",
+    )
+    p_del.add_argument(
+        "ids",
+        nargs="*",
+        help="One or more finding ids from scan/list",
+    )
+    p_del.add_argument(
+        "--all",
+        action="store_true",
+        help="Delete every remaining pending finding",
+    )
     p_del.add_argument("-y", "--yes", action="store_true", help="Skip confirmation")
     p_del.set_defaults(func=cmd_delete)
 
-    p_keep = sub.add_parser("keep", help="Whitelist a finding path by id")
-    p_keep.add_argument("id", help="Finding id from scan/list")
+    p_keep = sub.add_parser(
+        "keep",
+        help="Whitelist findings by id, or --all remaining pending",
+    )
+    p_keep.add_argument(
+        "ids",
+        nargs="*",
+        help="One or more finding ids from scan/list",
+    )
+    p_keep.add_argument(
+        "--all",
+        action="store_true",
+        help="Whitelist every remaining pending finding",
+    )
     p_keep.set_defaults(func=cmd_keep)
 
     p_paths = sub.add_parser("paths", help="Print config/data file locations")
