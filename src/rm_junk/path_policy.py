@@ -52,8 +52,14 @@ class PathPolicy:
         except OSError:
             self._project_root = project_root()
         home = Path.home().resolve()
+        sensitive_suffixes = list(SENSITIVE_LIBRARY_SUFFIXES)
+        if getattr(settings.scan, "include_mail_attachments", False):
+            sensitive_suffixes = [
+                s for s in sensitive_suffixes
+                if s not in ("Library/Mail", "Library/Containers/com.apple.mail")
+            ]
         self._sensitive = [
-            (home / rel).resolve() for rel in SENSITIVE_LIBRARY_SUFFIXES
+            (home / rel).resolve() for rel in sensitive_suffixes
         ]
 
     @staticmethod

@@ -6,9 +6,14 @@ from rm_junk.parallel import default_workers
 from rm_junk.path_policy import PathPolicy
 from rm_junk.progress import NullProgress, ScanProgress
 from rm_junk.scanners.cache import scan_caches
+from rm_junk.scanners.developer import scan_developer
+from rm_junk.scanners.duplicate import scan_duplicates
 from rm_junk.scanners.installers import scan_old_installers
 from rm_junk.scanners.large import scan_large
 from rm_junk.scanners.leftover import scan_leftovers
+from rm_junk.scanners.logs import scan_logs
+from rm_junk.scanners.mail import scan_mail
+from rm_junk.scanners.trash import scan_trash
 
 _CONF_RANK = {
     Confidence.HIGH: 3,
@@ -55,6 +60,36 @@ def run_all_scanners(
             prog.set_parallelism(workers)
             batch = scan_large(settings, policy, progress=prog)
             prog.log(f"← large: {len(batch)} finding(s)")
+            findings.extend(batch)
+
+        if settings.scan.include_logs:
+            prog.phase("Logs")
+            batch = scan_logs(settings, policy, progress=prog)
+            prog.log(f"← logs: {len(batch)} finding(s)")
+            findings.extend(batch)
+
+        if settings.scan.include_developer_junk:
+            prog.phase("Developer junk")
+            batch = scan_developer(settings, policy, progress=prog)
+            prog.log(f"← dev: {len(batch)} finding(s)")
+            findings.extend(batch)
+
+        if settings.scan.include_mail_attachments:
+            prog.phase("Mail attachments")
+            batch = scan_mail(settings, policy, progress=prog)
+            prog.log(f"← mail: {len(batch)} finding(s)")
+            findings.extend(batch)
+
+        if settings.scan.include_trash_bins:
+            prog.phase("Trash bins")
+            batch = scan_trash(settings, policy, progress=prog)
+            prog.log(f"← trash: {len(batch)} finding(s)")
+            findings.extend(batch)
+
+        if settings.scan.include_duplicates:
+            prog.phase("Duplicates")
+            batch = scan_duplicates(settings, policy, progress=prog)
+            prog.log(f"← duplicates: {len(batch)} finding(s)")
             findings.extend(batch)
     finally:
         prog.close()

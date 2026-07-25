@@ -33,6 +33,7 @@ rm-junk scan                       # save findings
 rm-junk list
 rm-junk delete <id> [id...]        # Trash specific finding(s) (confirms)
 rm-junk delete --all               # Trash all remaining pending findings
+rm-junk delete --high-confidence   # Trash only high confidence findings (confirms)
 rm-junk keep <id> [id...]          # Whitelist specific finding(s)
 rm-junk keep --all                 # Whitelist all remaining pending findings
 ```
@@ -62,7 +63,7 @@ rm-junk scan --no-progress      # quiet
 | `init` | Create `settings.json` if missing |
 | `scan` | Run scanners; print + optionally save queue |
 | `list` | Pending findings |
-| `delete <ids...> / --all` | Trash one or more findings by ID, or `--all` remaining pending (`-y` skips confirm) |
+| `delete <ids...> / --all / --high-confidence` | Trash findings by ID, `--all` remaining, or `--high-confidence` only (`-y` skips confirm) |
 | `keep <ids...> / --all` | Whitelist one or more findings by ID, or `--all` remaining pending |
 | `paths` | Show config/data locations |
 
@@ -82,6 +83,11 @@ Large-file scan defaults to **Library / Docker / VMs** — not whole home.
 |-----|--------|
 | `scan.largeFileMinGB` | Minimum size in **gigabytes** (e.g. `50`). Preferred over bytes. |
 | `scan.largeFileRoots` | Where to look for large items |
+| `scan.includeLogs` | Scan system and user logs (`true` by default) |
+| `scan.includeDeveloperJunk` | Scan package manager caches and Xcode tools data (`true` by default) |
+| `scan.includeMailAttachments` | Scan local Mail attachment caches (`false` by default) |
+| `scan.includeTrashBins` | Scan stale files in Trash folders (`true` by default) |
+| `scan.includeDuplicates` | Scan for duplicate files under roots (`false` by default) |
 | `excludePaths` | Never enter these directories |
 
 ## Safety

@@ -55,6 +55,8 @@ def scan_leftovers(
     policy: PathPolicy,
     *,
     progress: ScanProgress | None = None,
+    agent_dirs: list[tuple[Path, str]] | None = None,
+    pref_pane_dirs: list[Path] | None = None,
 ) -> list[Finding]:
     """Conservative orphan detection via bundle IDs and dead LaunchAgents."""
     _ = settings
@@ -62,46 +64,59 @@ def scan_leftovers(
     findings: list[Finding] = []
     prog.log("Leftover / orphan scan…")
 
-    # Lightweight phases: 3 work units (agents, saved state, prefs)
-    prog.add_work(3)
+    home = Path.home()
+    if agent_dirs is None:
+        agent_dirs = [
+            (home / "Library" / "LaunchAgents", "LaunchAgent"),
+            (Path("/Library/LaunchAgents"), "System LaunchAgent"),
+            (Path("/Library/LaunchDaemons"), "System LaunchDaemon"),
+        ]
+
+    if pref_pane_dirs is None:
+        pref_pane_dirs = [
+            home / "Library" / "PreferencePanes",
+            Path("/Library/PreferencePanes"),
+        ]
+
+    # Lightweight phases: 5 work units (installed, agents, saved state, prefs, pref panes)
+    prog.add_work(5)
     prog.status("installed apps…")
     installed = installed_bundle_ids()
-    home = Path.home()
 
     prog.status("LaunchAgents…")
-    agents = home / "Library" / "LaunchAgents"
-    if agents.is_dir() and not policy.should_skip(agents):
-        for entry in policy.safe_scandir(agents):
-            try:
-                if not entry.name.endswith(".plist") or not entry.is_file(
-                    follow_symlinks=False
-                ):
-                    continue
-                path = Path(entry.path)
-                if policy.should_skip(path):
-                    continue
-                with path.open("rb") as fh:
-                    data = plistlib.load(fh)
-                program = data.get("Program")
-                args = data.get("ProgramArguments") or []
-                candidate = program or (args[0] if args else None)
-                if not candidate:
-                    continue
-                prog_path = Path(str(candidate)).expanduser()
-                if prog_path.exists():
-                    continue
-                size = entry_size(path, policy)
-                findings.append(
-                    Finding(
-                        path=str(path),
-                        size_bytes=size,
-                        category=Category.LEFTOVER,
-                        confidence=Confidence.HIGH,
-                        reason=f"LaunchAgent program missing: {prog_path}",
+    for agents, label in agent_dirs:
+        if agents.is_dir() and not policy.should_skip(agents):
+            for entry in policy.safe_scandir(agents):
+                try:
+                    if not entry.name.endswith(".plist") or not entry.is_file(
+                        follow_symlinks=False
+                    ):
+                        continue
+                    path = Path(entry.path)
+                    if policy.should_skip(path):
+                        continue
+                    with path.open("rb") as fh:
+                        data = plistlib.load(fh)
+                    program = data.get("Program")
+                    args = data.get("ProgramArguments") or []
+                    candidate = program or (args[0] if args else None)
+                    if not candidate:
+                        continue
+                    prog_path = Path(str(candidate)).expanduser()
+                    if prog_path.exists():
+                        continue
+                    size = entry_size(path, policy)
+                    findings.append(
+                        Finding(
+                            path=str(path),
+                            size_bytes=size,
+                            category=Category.LEFTOVER,
+                            confidence=Confidence.HIGH,
+                            reason=f"{label} program missing: {prog_path}",
+                        )
                     )
-                )
-            except Exception:
-                continue
+                except Exception:
+                    continue
     prog.tick(1, item="LaunchAgents")
 
     prog.status("Saved Application State…")
@@ -167,5 +182,49 @@ def scan_leftovers(
             except OSError:
                 continue
     prog.tick(1, item="Preferences")
+
+    prog.status("PreferencePanes…")
+    for pane_dir in pref_pane_dirs:
+        if pane_dir.is_dir() and not policy.should_skip(pane_dir):
+            for entry in policy.safe_scandir(pane_dir):
+                if entry.name.endswith(".prefPane") and entry.is_dir(follow_symlinks=False):
+                    path = Path(entry.path)
+                    if policy.should_skip(path):
+                        continue
+
+                    info_plist = path / "Contents" / "Info.plist"
+                    if not info_plist.is_file():
+                        size = entry_size(path, policy)
+                        findings.append(
+                            Finding(
+                                path=str(path),
+                                size_bytes=size,
+                                category=Category.LEFTOVER,
+                                confidence=Confidence.HIGH,
+                                reason="Preference Pane is missing Info.plist",
+                            )
+                        )
+                        continue
+
+                    try:
+                        with info_plist.open("rb") as fh:
+                            data = plistlib.load(fh)
+                        exec_name = data.get("CFBundleExecutable")
+                        if exec_name:
+                            exec_path = path / "Contents" / "MacOS" / str(exec_name)
+                            if not exec_path.exists():
+                                size = entry_size(path, policy)
+                                findings.append(
+                                    Finding(
+                                        path=str(path),
+                                        size_bytes=size,
+                                        category=Category.LEFTOVER,
+                                        confidence=Confidence.HIGH,
+                                        reason=f"Preference Pane executable missing: {exec_path.name}",
+                                    )
+                                )
+                    except Exception:
+                        continue
+    prog.tick(1, item="PreferencePanes")
 
     return findings

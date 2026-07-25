@@ -232,7 +232,8 @@ def scan_large(
         ) -> None:
             path, child_findings, size = result
             label = _label(path)
-            prog.tick(1, item=f"{label} ({_fmt(size)})")
+            prog.tick(1, item=label)
+            prog.status(f"{label} ({_fmt(size)})")
             prog.log(
                 f"    done {label} (~{_fmt(size)}, {len(child_findings)} hit(s))"
             )
