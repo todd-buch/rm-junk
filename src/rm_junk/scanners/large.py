@@ -2,15 +2,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Callable
 
 from rm_junk.config import Settings, expand_path
 from rm_junk.models import Category, Confidence, Finding
 from rm_junk.parallel import default_workers, map_as_completed
 from rm_junk.path_policy import PathPolicy
+from rm_junk.progress import NullProgress, ScanProgress
 from rm_junk.sizing import dir_size
-
-ProgressFn = Callable[[str], None]
 
 KNOWN_HEAVY_NAMES = {
     ".docker",
@@ -61,24 +59,21 @@ def scan_large(
     settings: Settings,
     policy: PathPolicy,
     *,
-    progress: ProgressFn | None = None,
+    progress: ScanProgress | None = None,
 ) -> list[Finding]:
     """Find large dirs/files under configured roots.
 
     Parallelism: each top-level child of a root is walked on its own thread
     (no nested pools — avoids ThreadPoolExecutor deadlocks).
     """
+    prog: ScanProgress = progress or NullProgress()
     findings: list[Finding] = []
     threshold = settings.scan.large_file_min_bytes
     max_depth = settings.scan.max_depth
     workers = default_workers(settings.scan.workers or None)
     home = Path.home().resolve()
 
-    def log(msg: str) -> None:
-        if progress:
-            progress(msg)
-
-    log(f"Large-file scan using {workers} worker threads…")
+    prog.log(f"Large-file scan using {workers} worker threads…")
 
     for root_str in settings.scan.large_file_roots:
         try:
@@ -88,9 +83,8 @@ def scan_large(
         if not root.exists() or policy.should_skip(root):
             continue
 
-        log(f"  Root: {root}")
+        prog.log(f"  Root: {root}")
 
-        # Collect direct children once, then fan out.
         children: list[Path] = []
         root_file_findings: list[Finding] = []
         try:
@@ -119,6 +113,8 @@ def scan_large(
             continue
 
         findings.extend(root_file_findings)
+        if not children:
+            continue
 
         def walk_child(child: Path) -> tuple[Path, list[Finding], int]:
             reported: list[Path] = []
@@ -135,16 +131,23 @@ def scan_large(
             )
             return child, child_findings, size
 
-        def on_done(child: Path, result: tuple[Path, list[Finding], int]) -> None:
-            _, child_findings, size = result
-            log(f"    done {child.name} (~{_fmt(size)}, {len(child_findings)} hit(s))")
+        with prog.bar(len(children), desc="Large") as bar:
 
-        results = map_as_completed(
-            walk_child,
-            children,
-            workers=workers,
-            on_done=on_done,
-        )
+            def on_done(
+                child: Path, result: tuple[Path, list[Finding], int]
+            ) -> None:
+                _c, child_findings, size = result
+                bar.update(
+                    1,
+                    item=f"{child.name} ({_fmt(size)}, {len(child_findings)} hit)",
+                )
+
+            results = map_as_completed(
+                walk_child,
+                children,
+                workers=workers,
+                on_done=on_done,
+            )
         for _child, child_findings, _size in results:
             findings.extend(child_findings)
 

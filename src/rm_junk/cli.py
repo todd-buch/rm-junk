@@ -47,16 +47,14 @@ def cmd_scan(args: argparse.Namespace) -> int:
     policy = PathPolicy(settings)
     workers = settings.scan.workers
     from rm_junk.parallel import default_workers
+    from rm_junk.progress import NullProgress, TerminalProgress
 
     w = default_workers(workers or None)
     print(
         f"Scanning… ({w} workers; permission-denied paths are skipped)",
         flush=True,
     )
-
-    def progress(msg: str) -> None:
-        print(msg, flush=True)
-
+    progress = NullProgress() if args.no_progress else TerminalProgress()
     findings = run_all_scanners(settings, policy, progress=progress)
 
     if args.queue_only:
@@ -243,6 +241,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--queue-only",
         action="store_true",
         help="Only include findings meeting minConfidenceForQueue",
+    )
+    p_scan.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Disable progress bars (still prints phase logs)",
     )
     p_scan.set_defaults(func=cmd_scan)
 

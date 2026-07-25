@@ -3,13 +3,10 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from typing import Callable
-
 from rm_junk.config import Settings
 from rm_junk.models import Category, Confidence, Finding
 from rm_junk.path_policy import PathPolicy
-
-ProgressFn = Callable[[str], None]
+from rm_junk.progress import NullProgress, ScanProgress
 
 INSTALLER_SUFFIXES = {".dmg", ".pkg", ".zip"}
 
@@ -18,12 +15,12 @@ def scan_old_installers(
     settings: Settings,
     policy: PathPolicy,
     *,
-    progress: ProgressFn | None = None,
+    progress: ScanProgress | None = None,
 ) -> list[Finding]:
     downloads = Path.home() / "Downloads"
     findings: list[Finding] = []
-    if progress:
-        progress("Old installer scan (Downloads)…")
+    prog: ScanProgress = progress or NullProgress()
+    prog.log("Old installer scan (Downloads)…")
     if not downloads.is_dir() or policy.should_skip(downloads):
         return findings
 

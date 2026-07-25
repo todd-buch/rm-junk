@@ -2,15 +2,13 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Callable
 
 from rm_junk.config import Settings
 from rm_junk.models import Category, Confidence, Finding
-from rm_junk.parallel import default_workers, map_parallel
+from rm_junk.parallel import default_workers, map_as_completed
 from rm_junk.path_policy import PathPolicy
+from rm_junk.progress import NullProgress, ScanProgress
 from rm_junk.sizing import entry_size
-
-ProgressFn = Callable[[str], None]
 
 
 def _stale_enough(path: Path, min_age_days: int) -> bool:
@@ -33,7 +31,10 @@ def _scan_cache_root(
     reason_prefix: str,
     confidence: Confidence = Confidence.MEDIUM,
     workers: int = 1,
+    progress: ScanProgress | None = None,
+    bar_desc: str = "Caches",
 ) -> list[Finding]:
+    prog: ScanProgress = progress or NullProgress()
     if not root.is_dir() or policy.should_skip(root):
         return []
     min_bytes = settings.scan.cache_min_bytes
@@ -50,6 +51,9 @@ def _scan_cache_root(
             candidates.append(child)
         except OSError:
             continue
+
+    if not candidates:
+        return []
 
     def measure(child: Path) -> Finding | None:
         try:
@@ -69,25 +73,34 @@ def _scan_cache_root(
         except OSError:
             return None
 
-    results = map_parallel(measure, candidates, workers=workers)
-    return [f for f in results if f is not None]
+    findings: list[Finding] = []
+    with prog.bar(len(candidates), desc=bar_desc) as bar:
+
+        def on_done(child: Path, result: Finding | None) -> None:
+            bar.update(1, item=child.name)
+
+        results = map_as_completed(
+            measure,
+            candidates,
+            workers=workers,
+            on_done=on_done,
+        )
+    findings.extend(f for f in results if f is not None)
+    return findings
 
 
 def scan_caches(
     settings: Settings,
     policy: PathPolicy,
     *,
-    progress: ProgressFn | None = None,
+    progress: ScanProgress | None = None,
 ) -> list[Finding]:
+    prog: ScanProgress = progress or NullProgress()
     home = Path.home()
     findings: list[Finding] = []
     workers = default_workers(settings.scan.workers or None)
 
-    def log(msg: str) -> None:
-        if progress:
-            progress(msg)
-
-    log(f"Cache scan using {workers} worker threads…")
+    prog.log(f"Cache scan using {workers} worker threads…")
 
     findings.extend(
         _scan_cache_root(
@@ -98,6 +111,8 @@ def scan_caches(
             reason_prefix="User Library cache",
             confidence=Confidence.MEDIUM,
             workers=workers,
+            progress=prog,
+            bar_desc="Library caches",
         )
     )
 
@@ -131,7 +146,6 @@ def scan_caches(
                 )
             )
 
-    # Container caches: collect roots, then size top-level entries in parallel
     containers = home / "Library" / "Containers"
     container_roots: list[tuple[Path, str]] = []
     if containers.is_dir() and not policy.should_skip(containers):
@@ -154,14 +168,25 @@ def scan_caches(
             category=Category.CACHE,
             reason_prefix=f"Container cache ({name})",
             confidence=Confidence.LOW,
-            workers=1,  # outer pool already parallelizes containers
+            workers=1,
+            progress=None,  # outer bar tracks containers
+            bar_desc="container",
         )
 
     if container_roots:
-        log(f"  Sizing {len(container_roots)} container cache trees…")
-        nested = map_parallel(scan_one_container, container_roots, workers=workers)
+        with prog.bar(len(container_roots), desc="Container caches") as bar:
+
+            def on_done(item: tuple[Path, str], result: list[Finding]) -> None:
+                bar.update(1, item=item[1][:40])
+
+            nested = map_as_completed(
+                scan_one_container,
+                container_roots,
+                workers=workers,
+                on_done=on_done,
+            )
         for batch in nested:
             findings.extend(batch)
 
-    log(f"  Cache findings: {len(findings)}")
+    prog.log(f"  Cache findings: {len(findings)}")
     return findings

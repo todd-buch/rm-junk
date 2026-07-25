@@ -3,14 +3,11 @@ from __future__ import annotations
 import plistlib
 from pathlib import Path
 
-from typing import Callable
-
 from rm_junk.config import Settings
 from rm_junk.models import Category, Confidence, Finding
 from rm_junk.path_policy import PathPolicy
+from rm_junk.progress import NullProgress, ScanProgress
 from rm_junk.sizing import entry_size
-
-ProgressFn = Callable[[str], None]
 
 
 def _read_bundle_id(app_path: Path) -> str | None:
@@ -57,13 +54,13 @@ def scan_leftovers(
     settings: Settings,
     policy: PathPolicy,
     *,
-    progress: ProgressFn | None = None,
+    progress: ScanProgress | None = None,
 ) -> list[Finding]:
     """Conservative orphan detection via bundle IDs and dead LaunchAgents."""
     _ = settings  # thresholds unused for now; leftovers are mostly presence-based
+    prog: ScanProgress = progress or NullProgress()
     findings: list[Finding] = []
-    if progress:
-        progress("Leftover / orphan scan…")
+    prog.log("Leftover / orphan scan…")
     installed = installed_bundle_ids()
     home = Path.home()
 

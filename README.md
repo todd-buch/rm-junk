@@ -47,8 +47,11 @@ Edit that file to set:
 # Scan (saves pending findings)
 python -m rm_junk scan
 
-# Preview without saving
+# Preview without saving (shows progress bars in the terminal)
 python -m rm_junk scan --dry-run
+
+# Disable progress bars
+python -m rm_junk scan --dry-run --no-progress
 
 # List pending
 python -m rm_junk list

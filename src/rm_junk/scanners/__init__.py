@@ -1,17 +1,14 @@
 from __future__ import annotations
 
-from typing import Callable
-
 from rm_junk.config import Settings
 from rm_junk.models import Confidence, Finding
 from rm_junk.parallel import default_workers
 from rm_junk.path_policy import PathPolicy
+from rm_junk.progress import NullProgress, ScanProgress
 from rm_junk.scanners.cache import scan_caches
 from rm_junk.scanners.installers import scan_old_installers
 from rm_junk.scanners.large import scan_large
 from rm_junk.scanners.leftover import scan_leftovers
-
-ProgressFn = Callable[[str], None]
 
 _CONF_RANK = {
     Confidence.HIGH: 3,
@@ -24,46 +21,37 @@ def run_all_scanners(
     settings: Settings,
     policy: PathPolicy,
     *,
-    progress: ProgressFn | None = None,
+    progress: ScanProgress | None = None,
 ) -> list[Finding]:
-    """Run enabled scanners in a stable order.
-
-    Heavy parallelism lives *inside* each scanner (thread pool over independent
-    directories). Scanner types stay sequential so progress is readable and we
-    do not oversubscribe the disk with nested pools.
-    """
-
-    def log(msg: str) -> None:
-        if progress:
-            progress(msg)
-
+    """Run enabled scanners in a stable order with optional progress bars."""
+    prog: ScanProgress = progress or NullProgress()
     workers = default_workers(settings.scan.workers or None)
-    log(f"Scan workers (per scanner): {workers}")
+    prog.log(f"Scan workers (per scanner): {workers}")
 
     findings: list[Finding] = []
 
     if settings.scan.include_home_library_caches:
-        log("→ caches")
-        batch = scan_caches(settings, policy, progress=progress)
-        log(f"← caches: {len(batch)} finding(s)")
+        prog.log("→ caches")
+        batch = scan_caches(settings, policy, progress=prog)
+        prog.log(f"← caches: {len(batch)} finding(s)")
         findings.extend(batch)
 
     if settings.scan.include_leftover_app_data:
-        log("→ leftovers")
-        batch = scan_leftovers(settings, policy, progress=progress)
-        log(f"← leftovers: {len(batch)} finding(s)")
+        prog.log("→ leftovers")
+        batch = scan_leftovers(settings, policy, progress=prog)
+        prog.log(f"← leftovers: {len(batch)} finding(s)")
         findings.extend(batch)
 
     if settings.scan.include_old_installers:
-        log("→ installers")
-        batch = scan_old_installers(settings, policy, progress=progress)
-        log(f"← installers: {len(batch)} finding(s)")
+        prog.log("→ installers")
+        batch = scan_old_installers(settings, policy, progress=prog)
+        prog.log(f"← installers: {len(batch)} finding(s)")
         findings.extend(batch)
 
     if settings.scan.include_large_files:
-        log("→ large files/folders")
-        batch = scan_large(settings, policy, progress=progress)
-        log(f"← large: {len(batch)} finding(s)")
+        prog.log("→ large files/folders")
+        batch = scan_large(settings, policy, progress=prog)
+        prog.log(f"← large: {len(batch)} finding(s)")
         findings.extend(batch)
 
     return dedupe_findings(findings)
