@@ -10,7 +10,6 @@ from typing import Any
 
 from rm_junk.models import Confidence
 
-APP_SUPPORT_DIRNAME = "rm-junk"
 SETTINGS_FILENAME = "settings.json"
 FINDINGS_FILENAME = "findings.json"
 DEFAULT_SETTINGS_VERSION = 1
@@ -20,28 +19,78 @@ class ConfigError(Exception):
     """Invalid or unusable configuration."""
 
 
-def app_support_dir() -> Path:
-    base = Path.home() / "Library" / "Application Support" / APP_SUPPORT_DIRNAME
-    base.mkdir(parents=True, exist_ok=True)
-    return base
+def project_root() -> Path:
+    """Directory for local data (settings.json, findings.json).
+
+    Preference order:
+    1. ``RM_JUNK_HOME`` env var
+    2. Nearest project root containing ``pyproject.toml`` named rm-junk
+       (from cwd or package install path)
+    3. Current working directory
+    """
+    env = os.environ.get("RM_JUNK_HOME")
+    if env:
+        path = Path(env).expanduser().resolve()
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def is_project(d: Path) -> bool:
+        pyproject = d / "pyproject.toml"
+        if not pyproject.is_file():
+            return False
+        try:
+            text = pyproject.read_text(encoding="utf-8")
+        except OSError:
+            return False
+        return 'name = "rm-junk"' in text or "name = 'rm-junk'" in text
+
+    starts = [Path.cwd()]
+    try:
+        # src/rm_junk/config.py -> repo root when editable/source layout
+        starts.append(Path(__file__).resolve().parents[2])
+    except IndexError:
+        pass
+
+    seen: set[Path] = set()
+    for start in starts:
+        try:
+            cur = start.resolve()
+        except OSError:
+            continue
+        for d in [cur, *cur.parents]:
+            if d in seen:
+                continue
+            seen.add(d)
+            if is_project(d):
+                return d
+
+    cwd = Path.cwd().resolve()
+    cwd.mkdir(parents=True, exist_ok=True)
+    return cwd
 
 
 def default_settings_path() -> Path:
-    return app_support_dir() / SETTINGS_FILENAME
+    return project_root() / SETTINGS_FILENAME
 
 
 def default_findings_path() -> Path:
-    return app_support_dir() / FINDINGS_FILENAME
+    return project_root() / FINDINGS_FILENAME
 
 
 def example_settings_path() -> Path:
-    """Repo-bundled example next to package root when installed editable / from source."""
-    # src/rm_junk/config.py -> parents: rm_junk, src, repo
-    repo_root = Path(__file__).resolve().parents[2]
-    candidate = repo_root / "settings.example.json"
+    """Bundled example next to the project / package."""
+    root = project_root()
+    candidate = root / "settings.example.json"
     if candidate.is_file():
         return candidate
-    # Fallback: alongside package (if we later ship data files)
+    # Source layout fallback
+    try:
+        repo = Path(__file__).resolve().parents[2]
+        alt = repo / "settings.example.json"
+        if alt.is_file():
+            return alt
+    except IndexError:
+        pass
     return Path(__file__).resolve().parent / "settings.example.json"
 
 
@@ -329,13 +378,13 @@ def load_settings(path: Path | None = None, *, create_if_missing: bool = True) -
 
 
 def ensure_user_settings(path: Path | None = None) -> Path:
-    """Copy example settings into Application Support if missing."""
+    """Copy example settings into the project directory if missing."""
     settings_path = path or default_settings_path()
     if settings_path.is_file():
         return settings_path
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     example = example_settings_path()
-    if example.is_file():
+    if example.is_file() and example.resolve() != settings_path.resolve():
         shutil.copyfile(example, settings_path)
     else:
         settings_path.write_text(

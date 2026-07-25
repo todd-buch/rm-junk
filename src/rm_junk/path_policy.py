@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from rm_junk.config import Settings, app_support_dir, expand_path
+from rm_junk.config import Settings, expand_path, project_root
 
 # Paths we never enter or suggest for deletion (prefix match after resolve).
 HARD_DENY_PREFIXES: tuple[str, ...] = (
@@ -46,7 +46,11 @@ class PathPolicy:
         self.follow_symlinks = settings.scan.follow_symlinks
         self._exclude = self._normalize_list(settings.exclude_paths)
         self._whitelist = self._normalize_list(settings.whitelist)
-        self._app_support = app_support_dir().resolve()
+        # Never scan/delete our own project data (settings, findings, source).
+        try:
+            self._project_root = project_root().resolve()
+        except OSError:
+            self._project_root = project_root()
         home = Path.home().resolve()
         self._sensitive = [
             (home / rel).resolve() for rel in SENSITIVE_LIBRARY_SUFFIXES
@@ -74,9 +78,9 @@ class PathPolicy:
         for prefix in HARD_DENY_PREFIXES:
             if text == prefix or text.startswith(prefix + "/"):
                 return True
-        # Never touch our own support dir.
+        # Never touch our own project directory (local settings/findings/code).
         try:
-            resolved.relative_to(self._app_support)
+            resolved.relative_to(self._project_root)
             return True
         except ValueError:
             pass

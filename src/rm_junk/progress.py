@@ -6,7 +6,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from types import TracebackType
-from typing import TextIO, Protocol
+from typing import Callable, TextIO, Protocol
 
 
 def _term_width() -> int:
@@ -179,8 +179,9 @@ class ProgressBar:
     ) -> None:
         self.close()
 
-    def _render(self) -> None:
-        width = _term_width()
+    def format_line(self, width: int | None = None) -> str:
+        """Return the current bar text (same style as the terminal UI)."""
+        width = width or _term_width()
         now = time.monotonic()
         elapsed = now - self._start
         rate = self.n / elapsed if elapsed > 0 else 0.0
@@ -196,9 +197,7 @@ class ProgressBar:
                 eta_s = "…"
             else:
                 eta_s = _fmt_seconds(eta)
-            tail = (
-                f"{pct:3d}% {counts} {_fmt_seconds(elapsed)} ETA {eta_s}"
-            )
+            tail = f"{pct:3d}% {counts} {_fmt_seconds(elapsed)} ETA {eta_s}"
         else:
             frac = 0.0
             tail = f"{self.n} {_fmt_seconds(elapsed)} {rate:.1f}/s"
@@ -220,11 +219,26 @@ class ProgressBar:
                 cells[i] = "█"
             bar = "".join(cells)
 
-        line = f"\r{prefix}|{bar}| {tail}{item}"
+        line = f"{prefix}|{bar}| {tail}{item}"
         if len(line) > width:
             line = line[: width - 1]
-        line = line + " " * max(0, width - len(line) - 1)
-        self.file.write(line)
+        return line
+
+    def short_title(self) -> str:
+        """Compact title for the macOS menu bar (limited space)."""
+        if self.total > 0:
+            pct = int(min(1.0, self.n / self.total) * 100)
+            phase = (self.desc or "Scan")[:12]
+            return f"{pct}% {phase}"
+        phase = (self.desc or "Scan")[:16]
+        return f"… {phase}"
+
+    def _render(self) -> None:
+        width = _term_width()
+        line = self.format_line(width)
+        # Clear to end of line after \\r
+        padded = "\r" + line + " " * max(0, width - len(line) - 1)
+        self.file.write(padded)
         self.file.flush()
 
 
@@ -333,3 +347,77 @@ class NullProgress:
 
     def close(self) -> None:
         return None
+
+
+class CallbackProgress:
+    """Progress that mirrors the terminal bar and notifies a callback.
+
+    Used by the menu bar app so scans show the same phase bar style.
+    ``on_update(short_title, full_line, done)`` may be called from worker threads.
+    """
+
+    def __init__(
+        self,
+        on_update: Callable[[str, str, bool], None],
+        *,
+        debug: bool = False,
+        line_width: int = 72,
+    ) -> None:
+        self.debug = debug
+        self._on_update = on_update
+        self._line_width = line_width
+        self._bar: ProgressBar | None = None
+        self._lock = threading.Lock()
+
+    def _emit(self, *, done: bool = False) -> None:
+        with self._lock:
+            if self._bar is None:
+                title, line = ("rm-junk", "Idle")
+            else:
+                title = self._bar.short_title()
+                line = self._bar.format_line(self._line_width)
+        self._on_update(title, line, done)
+
+    def log(self, msg: str) -> None:
+        return None
+
+    def phase(self, name: str) -> None:
+        with self._lock:
+            self._bar = ProgressBar(
+                0,
+                desc=name,
+                enabled=False,
+                show_items=True,
+            )
+        self._emit()
+
+    def add_work(self, n: int) -> None:
+        with self._lock:
+            if self._bar is None:
+                self._bar = ProgressBar(0, desc="Scan", enabled=False, show_items=True)
+            self._bar.add_total(n)
+        self._emit()
+
+    def tick(self, n: int = 1, *, item: str | None = None) -> None:
+        with self._lock:
+            if self._bar is None:
+                self._bar = ProgressBar(0, desc="Scan", enabled=False, show_items=True)
+            self._bar.update(n, item=item)
+        self._emit()
+
+    def status(self, item: str) -> None:
+        with self._lock:
+            if self._bar is None:
+                self._bar = ProgressBar(0, desc="Scan", enabled=False, show_items=True)
+            self._bar.set_item(item)
+        self._emit()
+
+    def close(self) -> None:
+        with self._lock:
+            if self._bar is not None:
+                # Snap to complete for final paint
+                if self._bar.total and self._bar.n < self._bar.total:
+                    self._bar.n = self._bar.total
+        self._emit(done=True)
+        with self._lock:
+            self._bar = None

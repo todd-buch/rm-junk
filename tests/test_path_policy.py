@@ -30,8 +30,12 @@ def test_exclude_and_whitelist(tmp_path: Path):
     assert not policy.may_delete(skip)
 
 
-def test_app_support_denied():
+def test_project_root_denied():
+    from rm_junk.config import project_root
+
     settings = parse_settings({"excludePaths": [], "whitelist": []})
     policy = PathPolicy(settings)
-    support = Path.home() / "Library" / "Application Support" / "rm-junk"
-    assert policy.should_skip(support)
+    root = project_root()
+    assert policy.should_skip(root)
+    assert policy.should_skip(root / "findings.json")
+    assert not policy.may_delete(root / "settings.json")

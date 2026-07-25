@@ -2,7 +2,7 @@
 
 macOS utility that finds leftover junk — app caches, orphaned app data, old installers, and large files/folders — and lets **you** approve every removal.
 
-Nothing is deleted automatically. Background mode (when enabled) only queues findings for review.
+Nothing is deleted automatically.
 
 ## Requirements
 
@@ -24,71 +24,79 @@ pip install -e ".[dev]"
 python -m rm_junk init
 ```
 
-This copies `settings.example.json` to:
+Creates **project-local** files (same directory as this repo by default):
 
-`~/Library/Application Support/rm-junk/settings.json`
+| File | Purpose |
+|------|---------|
+| `settings.json` | Your config (gitignored) |
+| `findings.json` | Pending scan results (gitignored) |
 
-Edit that file to set:
+Override the project directory with `RM_JUNK_HOME=/path/to/dir` if needed.
+
+Edit `settings.json` for thresholds, roots, and excludes. See `settings.example.json`.
 
 | Key | Purpose |
 |-----|---------|
 | `scan.largeFileMinBytes` | Size threshold for large file/folder scan (default 1 GB) |
-| `scan.largeFileRoots` | Where large-item scan looks (default: `Library`, `.docker`, VMs, etc. — **not** whole home) |
+| `scan.largeFileRoots` | Where large-item scan looks (default: `Library`, Docker, VMs — **not** whole home) |
 | `scan.maxDepth` | Max directory depth for large-item scan (default `4`) |
 | `scan.cacheMinBytes` / `cacheMinAgeDays` | Cache size + staleness gates |
 | `excludePaths` | Directories **never** entered (default includes Documents, Desktop, media) |
 | `whitelist` | Paths you chose to keep (also written by `keep`) |
-| `background.enabled` | Allow background / menu bar agent |
-| `background.requireManualApproval` | **Must be true** if background is enabled |
-| `scan.workers` | Thread pool size for scans (`0` = auto, typically `cpu × 4`, max 32) |
-
-**Default scope (on purpose):** we do **not** deep-scan all of `~`. Personal folders like Documents / Desktop / Pictures are excluded. Large-file roots target common junk hideouts (`~/Library`, Docker, VMs). Old installers only list top-level files in Downloads (no deep walk). To scan more, add roots in `settings.json` (e.g. `"~/Downloads"` or even `"~"`).
+| `scan.workers` | Thread pool size (`0` = auto) |
 
 ## Usage
 
+### CLI
+
 ```bash
-# Scan (saves pending findings)
+# Scan (prints results + saves findings.json in the project dir)
 python -m rm_junk scan
 
-# Preview without saving (quiet progress bar)
+# Preview without saving
 python -m rm_junk scan --dry-run
 
-# Verbose: phase logs + which paths are being checked
-python -m rm_junk scan --dry-run --debug
+# Verbose progress details
+python -m rm_junk scan --debug
 
-# Disable progress bar entirely
-python -m rm_junk scan --dry-run --no-progress
-
-# List pending
+# List / delete / whitelist
 python -m rm_junk list
-
-# Trash a finding (id from list)
 python -m rm_junk delete <id>
-
-# Whitelist (never flag again)
 python -m rm_junk keep <id>
 
-# Menu bar review UI (count badge; only useful with pending items)
-python -m rm_junk menubar --force
-
-# Where settings/findings live
+# Paths
 python -m rm_junk paths
 ```
 
-Or after install: `rm-junk scan`, etc.
+### Menu bar (always on)
+
+```bash
+python -m rm_junk menubar
+```
+
+The **rm-junk** icon stays in the menu bar even with 0 findings.
+
+| Menu | Action |
+|------|--------|
+| **Scan / Rerun** | Run scanners again |
+| Status line | Live progress bar (same style as the terminal) |
+| Findings | Each path with **Delete (Trash)** / **Keep (whitelist)** |
+| Quit | Exit the menu bar app |
+
+While scanning, the menu bar title shows a short progress percent/phase (e.g. `42% Caches`), and the status row shows the full bar.
 
 ## macOS permissions
 
 - Many cache/orphan paths under `~/Library` work without special grants.
 - Privacy-sensitive areas (Mail, Messages, Safari, …) are **skipped** by design.
-- A full home large-file inventory is more complete with **Full Disk Access** granted to Terminal (dev) or a future `rm-junk.app`.
+- Full Disk Access helps complete large-file inventories under Library.
 - Permission errors are skipped; the scan does not crash.
 
 ## Safety
 
-- Hard denylist: `/System`, `/usr`, `/Applications`, … and the app’s own support dir
+- Hard denylist: `/System`, `/usr`, `/Applications`, … and this project directory
 - Prefer **Trash** (`send2trash`) over permanent delete
-- Background mode refuses to start if manual approval is not required
+- No automatic deletions
 
 ## Development
 

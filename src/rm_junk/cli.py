@@ -164,59 +164,32 @@ def cmd_keep(args: argparse.Namespace) -> int:
 
 
 def cmd_menubar(args: argparse.Namespace) -> int:
+    """Always-on menu bar: Scan/Rerun, progress, findings Delete/Keep."""
+    config = Path(args.config) if args.config else None
     try:
-        settings = load_settings(Path(args.config) if args.config else None)
+        # Ensure settings exist and are valid before blocking on the UI.
+        load_settings(config)
     except ConfigError as exc:
         print(f"Config error: {exc}", file=sys.stderr)
         return 1
 
-    settings.ensure_background_safe()
-    if not settings.background.enabled and not args.force:
-        print(
-            "Menu bar is for background review. Set background.enabled=true "
-            "in settings (with requireManualApproval=true), or pass --force.",
-            file=sys.stderr,
-        )
-        return 1
-
-    store = FindingStore()
-    pending = [
-        f
-        for f in store.pending
-        if meets_min_confidence(f, settings.scan.min_confidence_for_queue)
-    ]
-    if not pending:
-        print("No pending findings — not showing menu bar icon.")
-        return 0
-
-    policy = PathPolicy(settings)
-
-    def on_delete(finding) -> None:
-        delete_path(
-            finding.path,
-            policy,
-            to_trash=settings.deletion.move_to_trash,
-        )
-        store.mark(finding.id, FindingStatus.DELETED)
-
-    def on_keep(finding) -> None:
-        # Reload settings for fresh whitelist in case of multiple actions
-        current = load_settings(settings.path)
-        current.save_whitelist(list(current.whitelist) + [finding.path])
-        store.mark(finding.id, FindingStatus.KEPT)
-
+    from rm_junk.config import default_findings_path, project_root
     from rm_junk.menubar import run_menu_bar
 
-    run_menu_bar(pending, on_delete=on_delete, on_keep=on_keep)
+    print(f"Menu bar running (project: {project_root()})", flush=True)
+    print(f"Findings file: {default_findings_path()}", flush=True)
+    print("Use the menu bar icon — Ctrl+C here also quits.", flush=True)
+    run_menu_bar(config_path=config)
     return 0
 
 
 def cmd_paths(_args: argparse.Namespace) -> int:
-    print(f"settings: {default_settings_path()}")
-    from rm_junk.config import default_findings_path
+    from rm_junk.config import default_findings_path, project_root
 
+    print(f"project:  {project_root()}")
+    print(f"settings: {default_settings_path()}")
     print(f"findings: {default_findings_path()}")
-    print(f"example:  bundled settings.example.json (repo root)")
+    print(f"example:  settings.example.json (repo root)")
     return 0
 
 
@@ -228,7 +201,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"rm-junk {__version__}")
     parser.add_argument(
         "--config",
-        help="Path to settings.json (default: ~/Library/Application Support/rm-junk/)",
+        help="Path to settings.json (default: project dir settings.json)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -270,11 +243,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_keep.add_argument("id", help="Finding id from scan/list")
     p_keep.set_defaults(func=cmd_keep)
 
-    p_bar = sub.add_parser("menubar", help="Show menu bar review UI (macOS)")
-    p_bar.add_argument(
-        "--force",
-        action="store_true",
-        help="Run even if background.enabled is false",
+    p_bar = sub.add_parser(
+        "menubar",
+        help="Always-on menu bar (scan/rerun, progress, delete/keep)",
     )
     p_bar.set_defaults(func=cmd_menubar)
 

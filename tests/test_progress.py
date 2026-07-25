@@ -83,9 +83,6 @@ def test_terminal_phase_resets_bar():
     """Each phase gets a fresh bar so early work cannot pin percent near 100%."""
     buf = StringIO()
     p = TerminalProgress(file=buf, enabled=True, debug=False)
-    # Force non-TTY path still creates bars with enabled from isatty;
-    # drive via internal API after creating with enabled True on StringIO
-    # which disables rendering — still tracks n/total.
     p.enabled = True
     p.phase("Caches")
     assert p._bar is not None
@@ -104,3 +101,22 @@ def test_terminal_phase_resets_bar():
     p.tick(1, item="Containers/foo")
     assert p._bar.n == 1
     p.close()
+
+
+def test_callback_progress_emits_bar_lines():
+    events: list[tuple[str, str, bool]] = []
+
+    def on_update(title: str, line: str, done: bool) -> None:
+        events.append((title, line, done))
+
+    from rm_junk.progress import CallbackProgress
+
+    p = CallbackProgress(on_update)
+    p.phase("Caches")
+    p.add_work(4)
+    p.tick(1, item="a")
+    p.tick(3, item="b")
+    p.close()
+    assert events
+    assert any("Caches" in e[1] or "Caches" in e[0] for e in events)
+    assert events[-1][2] is True
