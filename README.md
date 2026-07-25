@@ -74,7 +74,13 @@ Project-local by default (or `RM_JUNK_HOME`):
 | `findings.json` | Pending results (gitignored) |
 | `settings.example.json` | Defaults |
 
-Large-file scan defaults to **Library / Docker / VMs** — not whole home. See example file for `largeFileRoots`, `excludePaths`, thresholds.
+Large-file scan defaults to **Library / Docker / VMs** — not whole home.
+
+| Key | Notes |
+|-----|--------|
+| `scan.largeFileMinGB` | Minimum size in **gigabytes** (e.g. `50`). Preferred over bytes. |
+| `scan.largeFileRoots` | Where to look for large items |
+| `excludePaths` | Never enter these directories |
 
 ## Safety
 

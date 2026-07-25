@@ -115,7 +115,7 @@ DEFAULTS: dict[str, Any] = {
         "includeOldInstallers": True,
         "cacheMinBytes": 50 * 1024 * 1024,
         "cacheMinAgeDays": 3,
-        "largeFileMinBytes": 1024 * 1024 * 1024,
+        # largeFileMinGB is optional; default applied in _large_file_min_bytes()
         "largeFileRoots": list(DEFAULT_LARGE_FILE_ROOTS),
         "installerMinBytes": 100 * 1024 * 1024,
         "installerMinAgeDays": 30,
@@ -236,7 +236,7 @@ def settings_to_dict(settings: Settings) -> dict[str, Any]:
             "includeOldInstallers": settings.scan.include_old_installers,
             "cacheMinBytes": settings.scan.cache_min_bytes,
             "cacheMinAgeDays": settings.scan.cache_min_age_days,
-            "largeFileMinBytes": settings.scan.large_file_min_bytes,
+            "largeFileMinGB": settings.scan.large_file_min_bytes / (1024**3),
             "largeFileRoots": list(settings.scan.large_file_roots),
             "installerMinBytes": settings.scan.installer_min_bytes,
             "installerMinAgeDays": settings.scan.installer_min_age_days,
@@ -278,6 +278,31 @@ def _require_int(data: dict[str, Any], key: str, default: int, *, min_value: int
     if value < min_value:
         raise ConfigError(f"{key} must be >= {min_value}")
     return value
+
+
+def _require_number(
+    data: dict[str, Any], key: str, default: float, *, min_value: float = 0
+) -> float:
+    if key not in data:
+        return default
+    value = data[key]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ConfigError(f"{key} must be a number")
+    if value < min_value:
+        raise ConfigError(f"{key} must be >= {min_value}")
+    return float(value)
+
+
+def _large_file_min_bytes(scan_raw: dict[str, Any]) -> int:
+    """Prefer largeFileMinGB; accept legacy largeFileMinBytes."""
+    if "largeFileMinGB" in scan_raw:
+        gb = _require_number(scan_raw, "largeFileMinGB", 1.0, min_value=0.001)
+        return int(gb * (1024**3))
+    if "largeFileMinBytes" in scan_raw:
+        return _require_int(
+            scan_raw, "largeFileMinBytes", 1024 * 1024 * 1024, min_value=1
+        )
+    return 1024 * 1024 * 1024
 
 
 def _require_str_list(data: dict[str, Any], key: str, default: list[str]) -> list[str]:
@@ -324,9 +349,7 @@ def parse_settings(data: dict[str, Any], *, path: Path | None = None) -> Setting
             ),
             cache_min_bytes=_require_int(scan_raw, "cacheMinBytes", 50 * 1024 * 1024),
             cache_min_age_days=_require_int(scan_raw, "cacheMinAgeDays", 3),
-            large_file_min_bytes=_require_int(
-                scan_raw, "largeFileMinBytes", 1024 * 1024 * 1024
-            ),
+            large_file_min_bytes=_large_file_min_bytes(scan_raw),
             large_file_roots=_require_str_list(
                 scan_raw, "largeFileRoots", list(DEFAULT_LARGE_FILE_ROOTS)
             ),

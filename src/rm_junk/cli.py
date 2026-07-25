@@ -19,15 +19,16 @@ from rm_junk.scanners import meets_min_confidence, run_all_scanners
 
 
 def _print_finding(idx: int, finding, *, show_id: bool = True) -> None:
-    prefix = f"  [{idx}]"
+    """Human-readable finding block for scan/list output."""
+    size = format_bytes(finding.size_bytes)
+    cat = finding.category.value.replace("_", " ")
+    conf = finding.confidence.value
+    print(f"  {idx}.  {size}  ·  {cat}  ·  {conf} confidence")
+    print(f"      {finding.path}")
+    print(f"      {finding.reason}")
     if show_id:
-        prefix += f" id={finding.id}"
-    print(
-        f"{prefix} {format_bytes(finding.size_bytes):>10}  "
-        f"{finding.category.value:12}  {finding.confidence.value:6}  "
-        f"{finding.path}"
-    )
-    print(f"       {finding.reason}")
+        print(f"      id: {finding.id}")
+    print()
 
 
 def cmd_init(_args: argparse.Namespace) -> int:
@@ -49,10 +50,14 @@ def cmd_scan(args: argparse.Namespace) -> int:
     from rm_junk.progress import NullProgress, TerminalProgress
 
     w = default_workers(settings.scan.workers or None)
-    print(
-        f"rm-junk scan  ·  {w} workers  ·  permission-denied paths skipped",
-        flush=True,
-    )
+    threshold_gb = settings.scan.large_file_min_bytes / (1024**3)
+    print("rm-junk scan", flush=True)
+    if args.debug:
+        print(
+            f"  workers={w}  large≥{threshold_gb:g}GB  "
+            f"(permission-denied paths are skipped)",
+            flush=True,
+        )
     if args.no_progress:
         progress = NullProgress()
     else:
@@ -81,21 +86,23 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
     print(f"\nFound {len(findings)} item(s)  ·  ~{format_bytes(total)}")
     if by_cat:
-        summary = "  ".join(f"{k}={v}" for k, v in sorted(by_cat.items()))
-        print(f"By category: {summary}")
+        summary = ", ".join(
+            f"{k.replace('_', ' ')}: {v}" for k, v in sorted(by_cat.items())
+        )
+        print(f"Categories: {summary}")
     print()
     for i, finding in enumerate(findings, start=1):
         _print_finding(i, finding)
 
     if args.dry_run:
-        print("\nDry run — results not saved.")
+        print("Dry run — results not saved.")
         return 0
 
     store = FindingStore()
     store.replace_pending_with(findings)
-    print(f"\nSaved {len(findings)} pending finding(s) → {store.path}")
-    print("Next:  rm-junk list")
-    print("       rm-junk delete <id>   |   rm-junk keep <id>")
+    print(f"Saved {len(findings)} pending item(s) → {store.path}")
+    print("Review:  rm-junk list")
+    print("Act:     rm-junk delete <id>   |   rm-junk keep <id>")
     return 0
 
 

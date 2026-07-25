@@ -8,7 +8,7 @@ from rm_junk.config import ConfigError, parse_settings
 
 def test_defaults_parse():
     settings = parse_settings({})
-    assert settings.scan.large_file_min_bytes == 1024 * 1024 * 1024
+    assert settings.scan.large_file_min_bytes == 1024 * 1024 * 1024  # 1 GB default
     assert settings.background.enabled is False
     assert settings.background.require_manual_approval is True
     # Do not deep-scan entire home by default
@@ -16,6 +16,16 @@ def test_defaults_parse():
     assert "~/Library" in settings.scan.large_file_roots
     assert "~/Documents" in settings.exclude_paths
     assert settings.scan.max_depth == 4
+
+
+def test_large_file_min_gb():
+    settings = parse_settings({"scan": {"largeFileMinGB": 50}})
+    assert settings.scan.large_file_min_bytes == 50 * (1024**3)
+
+
+def test_large_file_min_bytes_legacy():
+    settings = parse_settings({"scan": {"largeFileMinBytes": 2_000_000_000}})
+    assert settings.scan.large_file_min_bytes == 2_000_000_000
 
 
 def test_background_requires_manual_approval():

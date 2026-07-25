@@ -7,7 +7,7 @@
     "includeOldInstallers": true,
     "cacheMinBytes": 52428800,
     "cacheMinAgeDays": 3,
-    "largeFileMinBytes": 1073741824,
+    "largeFileMinGB": 50,
     "largeFileRoots": [
       "~/Library",
       "~/.docker",

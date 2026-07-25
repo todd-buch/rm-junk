@@ -274,13 +274,10 @@ class ProgressBar:
                 eta_s = "…"
             else:
                 eta_s = _fmt_seconds(eta)
-            active = len(self._inflight)
-            par = f" ×{self.parallelism}" if self.parallelism > 1 else ""
-            infl = f" [{active} active]" if active > 1 else ""
-            tail = f"{pct:3d}% {counts} {_fmt_seconds(elapsed)} ETA {eta_s}{par}{infl}"
+            tail = f"{pct:3d}% {counts}  {_fmt_seconds(elapsed)}  ETA {eta_s}"
         else:
             frac = 0.0
-            tail = f"{self.n} {_fmt_seconds(elapsed)} {rate:.1f}/s"
+            tail = f"{self.n}  {_fmt_seconds(elapsed)}"
 
         prefix = f"{self.desc} " if self.desc else ""
         item = ""
