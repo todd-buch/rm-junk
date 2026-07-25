@@ -103,23 +103,3 @@ rm-junk init
 4. **Large files/folders** — under configured roots only  
 
 Privacy-sensitive Library areas (Mail, Messages, Safari, …) are skipped. System paths are hard-denied. This project directory is never suggested for deletion.
-
-## Safety
-
-- Every removal is **explicit** (`delete` or future UI approval)
-- Prefer **Trash** via `send2trash`
-- Permission errors are skipped; scans do not crash
-- Full Disk Access (for Terminal / your shell) improves coverage under Library
-
-## Development
-
-```bash
-pytest
-```
-
-## Branches
-
-| Branch | Scope |
-|--------|--------|
-| **`terminal/cli-v1`** (this) | Terminal-only CLI |
-| Future app branch | Menu bar / `.app` packaging — see [`docs/mac-app-plan.md`](docs/mac-app-plan.md) |
