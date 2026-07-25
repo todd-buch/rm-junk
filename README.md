@@ -47,10 +47,13 @@ Edit that file to set:
 # Scan (saves pending findings)
 python -m rm_junk scan
 
-# Preview without saving (shows progress bars in the terminal)
+# Preview without saving (quiet progress bar)
 python -m rm_junk scan --dry-run
 
-# Disable progress bars
+# Verbose: phase logs + which paths are being checked
+python -m rm_junk scan --dry-run --debug
+
+# Disable progress bar entirely
 python -m rm_junk scan --dry-run --no-progress
 
 # List pending

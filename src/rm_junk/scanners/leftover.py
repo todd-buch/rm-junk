@@ -57,14 +57,16 @@ def scan_leftovers(
     progress: ScanProgress | None = None,
 ) -> list[Finding]:
     """Conservative orphan detection via bundle IDs and dead LaunchAgents."""
-    _ = settings  # thresholds unused for now; leftovers are mostly presence-based
+    _ = settings
     prog: ScanProgress = progress or NullProgress()
     findings: list[Finding] = []
     prog.log("Leftover / orphan scan…")
+
+    # Lightweight phases: 3 work units (agents, saved state, prefs)
+    prog.add_work(3)
     installed = installed_bundle_ids()
     home = Path.home()
 
-    # LaunchAgents pointing at missing binaries — high confidence
     agents = home / "Library" / "LaunchAgents"
     if agents.is_dir() and not policy.should_skip(agents):
         for entry in policy.safe_scandir(agents):
@@ -93,15 +95,13 @@ def scan_leftovers(
                         size_bytes=size,
                         category=Category.LEFTOVER,
                         confidence=Confidence.HIGH,
-                        reason=(
-                            f"LaunchAgent program missing: {prog_path}"
-                        ),
+                        reason=f"LaunchAgent program missing: {prog_path}",
                     )
                 )
             except Exception:
                 continue
+    prog.tick(1, item="LaunchAgents")
 
-    # Saved Application State — bundle id no longer installed
     saved = home / "Library" / "Saved Application State"
     if saved.is_dir() and not policy.should_skip(saved):
         for entry in policy.safe_scandir(saved):
@@ -112,7 +112,6 @@ def scan_leftovers(
                 domain = name[: -len(".savedState")]
                 if _is_apple(domain) or domain in installed:
                     continue
-                # Only flag if we have a plausible reverse-DNS id
                 if domain.count(".") < 1:
                     continue
                 path = Path(entry.path)
@@ -128,8 +127,8 @@ def scan_leftovers(
                 )
             except OSError:
                 continue
+    prog.tick(1, item="Saved Application State")
 
-    # Preferences plists — only reverse-DNS and not installed, not Apple
     prefs = home / "Library" / "Preferences"
     if prefs.is_dir() and not policy.should_skip(prefs):
         for entry in policy.safe_scandir(prefs):
@@ -143,17 +142,10 @@ def scan_leftovers(
                     continue
                 if domain in installed:
                     continue
-                # Avoid byhost and system-looking noise
                 if ".ByHost" in entry.name or domain.startswith("com.apple."):
                     continue
-                # Low confidence: prefs can outlive apps we didn't detect
-                # (App Store apps in other locations, CLI tools, etc.)
-                # Skip tiny noise; still conservative: only if parent patterns match
-                # known leftover-ish and size is non-trivial OR we keep medium only
-                # for exact-looking ids that are clearly third-party.
                 path = Path(entry.path)
                 size = entry_size(path, policy)
-                # Prefer not to flood: only report prefs > 100KB
                 if size < 100_000:
                     continue
                 findings.append(
@@ -170,5 +162,6 @@ def scan_leftovers(
                 )
             except OSError:
                 continue
+    prog.tick(1, item="Preferences")
 
     return findings

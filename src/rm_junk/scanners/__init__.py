@@ -23,36 +23,38 @@ def run_all_scanners(
     *,
     progress: ScanProgress | None = None,
 ) -> list[Finding]:
-    """Run enabled scanners in a stable order with optional progress bars."""
+    """Run enabled scanners; advance a single progress bar via progress.tick()."""
     prog: ScanProgress = progress or NullProgress()
     workers = default_workers(settings.scan.workers or None)
     prog.log(f"Scan workers (per scanner): {workers}")
 
     findings: list[Finding] = []
+    try:
+        if settings.scan.include_home_library_caches:
+            prog.phase("Caches")
+            batch = scan_caches(settings, policy, progress=prog)
+            prog.log(f"← caches: {len(batch)} finding(s)")
+            findings.extend(batch)
 
-    if settings.scan.include_home_library_caches:
-        prog.log("→ caches")
-        batch = scan_caches(settings, policy, progress=prog)
-        prog.log(f"← caches: {len(batch)} finding(s)")
-        findings.extend(batch)
+        if settings.scan.include_leftover_app_data:
+            prog.phase("Leftovers")
+            batch = scan_leftovers(settings, policy, progress=prog)
+            prog.log(f"← leftovers: {len(batch)} finding(s)")
+            findings.extend(batch)
 
-    if settings.scan.include_leftover_app_data:
-        prog.log("→ leftovers")
-        batch = scan_leftovers(settings, policy, progress=prog)
-        prog.log(f"← leftovers: {len(batch)} finding(s)")
-        findings.extend(batch)
+        if settings.scan.include_old_installers:
+            prog.phase("Installers")
+            batch = scan_old_installers(settings, policy, progress=prog)
+            prog.log(f"← installers: {len(batch)} finding(s)")
+            findings.extend(batch)
 
-    if settings.scan.include_old_installers:
-        prog.log("→ installers")
-        batch = scan_old_installers(settings, policy, progress=prog)
-        prog.log(f"← installers: {len(batch)} finding(s)")
-        findings.extend(batch)
-
-    if settings.scan.include_large_files:
-        prog.log("→ large files/folders")
-        batch = scan_large(settings, policy, progress=prog)
-        prog.log(f"← large: {len(batch)} finding(s)")
-        findings.extend(batch)
+        if settings.scan.include_large_files:
+            prog.phase("Large files")
+            batch = scan_large(settings, policy, progress=prog)
+            prog.log(f"← large: {len(batch)} finding(s)")
+            findings.extend(batch)
+    finally:
+        prog.close()
 
     return dedupe_findings(findings)
 

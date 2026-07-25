@@ -116,6 +116,9 @@ def scan_large(
         if not children:
             continue
 
+        prog.add_work(len(children))
+        prog.log(f"  walking {len(children)} top-level folders…")
+
         def walk_child(child: Path) -> tuple[Path, list[Finding], int]:
             reported: list[Path] = []
             child_findings: list[Finding] = []
@@ -131,23 +134,24 @@ def scan_large(
             )
             return child, child_findings, size
 
-        with prog.bar(len(children), desc="Large") as bar:
-
-            def on_done(
-                child: Path, result: tuple[Path, list[Finding], int]
-            ) -> None:
-                _c, child_findings, size = result
-                bar.update(
-                    1,
-                    item=f"{child.name} ({_fmt(size)}, {len(child_findings)} hit)",
-                )
-
-            results = map_as_completed(
-                walk_child,
-                children,
-                workers=workers,
-                on_done=on_done,
+        def on_done(
+            child: Path, result: tuple[Path, list[Finding], int]
+        ) -> None:
+            _c, child_findings, size = result
+            prog.tick(
+                1,
+                item=f"{child.name} ({_fmt(size)}, {len(child_findings)} hit)",
             )
+            prog.log(
+                f"    done {child.name} (~{_fmt(size)}, {len(child_findings)} hit(s))"
+            )
+
+        results = map_as_completed(
+            walk_child,
+            children,
+            workers=workers,
+            on_done=on_done,
+        )
         for _child, child_findings, _size in results:
             findings.extend(child_findings)
 

@@ -22,24 +22,35 @@ def scan_old_installers(
     prog: ScanProgress = progress or NullProgress()
     prog.log("Old installer scan (Downloads)…")
     if not downloads.is_dir() or policy.should_skip(downloads):
+        prog.add_work(1)
+        prog.tick(1, item="Downloads (skipped)")
         return findings
 
     min_bytes = settings.scan.installer_min_bytes
     min_age = settings.scan.installer_min_age_days
     now = time.time()
 
-    for entry in policy.safe_scandir(downloads):
+    entries = list(policy.safe_scandir(downloads))
+    prog.add_work(max(1, len(entries)))
+
+    scanned = 0
+    for entry in entries:
         try:
             path = Path(entry.path)
+            scanned += 1
             if not entry.is_file(follow_symlinks=False):
+                prog.tick(1, item=entry.name)
                 continue
             if path.suffix.lower() not in INSTALLER_SUFFIXES:
+                prog.tick(1, item=entry.name)
                 continue
             st = entry.stat(follow_symlinks=False)
             if st.st_size < min_bytes:
+                prog.tick(1, item=entry.name)
                 continue
             age_days = (now - st.st_mtime) / 86400
             if age_days < min_age:
+                prog.tick(1, item=entry.name)
                 continue
             findings.append(
                 Finding(
@@ -53,6 +64,12 @@ def scan_old_installers(
                     ),
                 )
             )
+            prog.tick(1, item=entry.name)
         except OSError:
+            prog.tick(1, item=getattr(entry, "name", "?"))
             continue
+
+    if scanned == 0:
+        prog.tick(1, item="Downloads")
+
     return findings

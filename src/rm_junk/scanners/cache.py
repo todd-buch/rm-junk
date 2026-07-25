@@ -32,7 +32,6 @@ def _scan_cache_root(
     confidence: Confidence = Confidence.MEDIUM,
     workers: int = 1,
     progress: ScanProgress | None = None,
-    bar_desc: str = "Caches",
 ) -> list[Finding]:
     prog: ScanProgress = progress or NullProgress()
     if not root.is_dir() or policy.should_skip(root):
@@ -55,6 +54,9 @@ def _scan_cache_root(
     if not candidates:
         return []
 
+    prog.add_work(len(candidates))
+    prog.log(f"  sizing {len(candidates)} dirs under {root}")
+
     def measure(child: Path) -> Finding | None:
         try:
             size = entry_size(child, policy)
@@ -73,20 +75,16 @@ def _scan_cache_root(
         except OSError:
             return None
 
-    findings: list[Finding] = []
-    with prog.bar(len(candidates), desc=bar_desc) as bar:
+    def on_done(child: Path, result: Finding | None) -> None:
+        prog.tick(1, item=child.name)
 
-        def on_done(child: Path, result: Finding | None) -> None:
-            bar.update(1, item=child.name)
-
-        results = map_as_completed(
-            measure,
-            candidates,
-            workers=workers,
-            on_done=on_done,
-        )
-    findings.extend(f for f in results if f is not None)
-    return findings
+    results = map_as_completed(
+        measure,
+        candidates,
+        workers=workers,
+        on_done=on_done,
+    )
+    return [f for f in results if f is not None]
 
 
 def scan_caches(
@@ -112,7 +110,6 @@ def scan_caches(
             confidence=Confidence.MEDIUM,
             workers=workers,
             progress=prog,
-            bar_desc="Library caches",
         )
     )
 
@@ -161,6 +158,7 @@ def scan_caches(
 
     def scan_one_container(item: tuple[Path, str]) -> list[Finding]:
         cache_dir, name = item
+        # Don't double-count progress: outer loop ticks containers only
         return _scan_cache_root(
             cache_dir,
             settings,
@@ -169,22 +167,22 @@ def scan_caches(
             reason_prefix=f"Container cache ({name})",
             confidence=Confidence.LOW,
             workers=1,
-            progress=None,  # outer bar tracks containers
-            bar_desc="container",
+            progress=None,
         )
 
     if container_roots:
-        with prog.bar(len(container_roots), desc="Container caches") as bar:
+        prog.add_work(len(container_roots))
+        prog.log(f"  sizing {len(container_roots)} container cache trees…")
 
-            def on_done(item: tuple[Path, str], result: list[Finding]) -> None:
-                bar.update(1, item=item[1][:40])
+        def on_done(item: tuple[Path, str], result: list[Finding]) -> None:
+            prog.tick(1, item=item[1][:48])
 
-            nested = map_as_completed(
-                scan_one_container,
-                container_roots,
-                workers=workers,
-                on_done=on_done,
-            )
+        nested = map_as_completed(
+            scan_one_container,
+            container_roots,
+            workers=workers,
+            on_done=on_done,
+        )
         for batch in nested:
             findings.extend(batch)
 
