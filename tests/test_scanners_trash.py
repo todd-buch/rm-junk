@@ -81,3 +81,36 @@ def test_delete_path_bypasses_send2trash_in_trash_folders(tmp_path: Path):
         delete_path(target_file, policy, to_trash=True)
         assert not target_file.exists()
         mock_send.assert_not_called()
+
+
+def test_delete_path_falls_back_to_permanent_delete(tmp_path: Path):
+    settings = parse_settings({})
+    policy = PathPolicy(settings)
+    policy.is_hard_denied = lambda p: False
+
+    target_file = tmp_path / "fallback_item.txt"
+    target_file.touch()
+
+    # If send2trash raises OSError, it should fallback to permanent delete (unlink)
+    with patch("send2trash.send2trash", side_effect=OSError("fake permission error")) as mock_send:
+        delete_path(target_file, policy, to_trash=True)
+        assert not target_file.exists()
+        mock_send.assert_called_once()
+
+
+def test_delete_path_raises_deletion_error_on_total_failure(tmp_path: Path):
+    settings = parse_settings({})
+    policy = PathPolicy(settings)
+    policy.is_hard_denied = lambda p: False
+
+    target_file = tmp_path / "total_failure_item.txt"
+    target_file.touch()
+
+    # If both send2trash and permanent delete fail (e.g. unlink raises OSError),
+    # it should raise DeletionError
+    from rm_junk.deletion import DeletionError
+    with patch("send2trash.send2trash", side_effect=OSError("fake error")), \
+         patch("pathlib.Path.unlink", side_effect=OSError("absolute permission error")):
+        import pytest
+        with pytest.raises(DeletionError, match="absolute permission error"):
+            delete_path(target_file, policy, to_trash=True)
