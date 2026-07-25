@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -17,6 +18,80 @@ DEFAULT_SETTINGS_VERSION = 1
 
 class ConfigError(Exception):
     """Invalid or unusable configuration."""
+
+
+def parse_size(value: Any) -> int:
+    if isinstance(value, (int, float)):
+        if isinstance(value, bool):
+            raise ConfigError("Size cannot be a boolean")
+        if value < 0:
+            raise ConfigError("Size cannot be negative")
+        return int(value)
+    
+    if not isinstance(value, str):
+        raise ConfigError(f"Invalid size type: {type(value)}")
+    
+    val_str = value.strip().upper()
+    if not val_str:
+        return 0
+    
+    match = re.match(r"^(\d+(?:\.\d+)?)\s*([A-Z]*)$", val_str)
+    if not match:
+        raise ConfigError(f"Invalid size format: '{value}'")
+    
+    num_str, unit = match.groups()
+    num = float(num_str)
+    
+    if not unit or unit == "B":
+        return int(num)
+    
+    units = {
+        "K": 1024, "KB": 1024,
+        "M": 1024**2, "MB": 1024**2,
+        "G": 1024**3, "GB": 1024**3,
+        "T": 1024**4, "TB": 1024**4,
+        "P": 1024**5, "PB": 1024**5,
+    }
+    
+    if unit not in units:
+        raise ConfigError(f"Unsupported size unit: '{unit}' in '{value}'")
+    
+    return int(num * units[unit])
+
+
+def format_size(bytes_val: int) -> str:
+    if bytes_val < 0:
+        return "0B"
+    if bytes_val == 0:
+        return "0B"
+    
+    if bytes_val % (1024**3) == 0:
+        return f"{bytes_val // (1024**3)}GB"
+    
+    for unit, factor in [("GB", 1024**3), ("MB", 1024**2), ("KB", 1024)]:
+        val = bytes_val / factor
+        if val >= 1.0:
+            if val.is_integer():
+                return f"{int(val)}{unit}"
+            formatted = f"{val:.2f}".rstrip("0").rstrip(".")
+            try:
+                parsed = parse_size(f"{formatted}{unit}")
+                if parsed == bytes_val:
+                    return f"{formatted}{unit}"
+            except ConfigError:
+                pass
+            
+    return f"{bytes_val}B"
+
+
+def _require_size(data: dict[str, Any], key: str, default: int) -> int:
+    if key not in data:
+        return default
+    value = data[key]
+    try:
+        return parse_size(value)
+    except ConfigError as exc:
+        raise ConfigError(f"Invalid size for {key}: {exc}") from exc
 
 
 def project_root() -> Path:
@@ -117,21 +192,20 @@ DEFAULTS: dict[str, Any] = {
         "includeDeveloperJunk": True,
         "includeMailAttachments": False,
         "includeTrashBins": True,
-        "cacheMinBytes": 50 * 1024 * 1024,
+        "cacheMinBytes": "50MB",
         "cacheMinAgeDays": 3,
         "logMinAgeDays": 30,
-        "logMinBytes": 0,
-        "devJunkMinBytes": 50 * 1024 * 1024,
+        "logMinBytes": "0B",
+        "devJunkMinBytes": "50MB",
         "devJunkMinAgeDays": 30,
-        "mailAttachmentMinBytes": 5 * 1024 * 1024,
+        "mailAttachmentMinBytes": "5MB",
         "mailAttachmentMinAgeDays": 30,
-        "trashMinBytes": 0,
+        "trashMinBytes": "0B",
         "trashMinAgeDays": 7,
         "includeDuplicates": False,
-        "duplicateMinBytes": 1024 * 1024,
-        # largeFileMinGB is optional; default applied in _large_file_min_bytes()
+        "duplicateMinBytes": "1MB",
         "largeFileRoots": list(DEFAULT_LARGE_FILE_ROOTS),
-        "installerMinBytes": 100 * 1024 * 1024,
+        "installerMinBytes": "100MB",
         "installerMinAgeDays": 30,
         "maxDepth": 4,
         "followSymlinks": False,
@@ -266,21 +340,21 @@ def settings_to_dict(settings: Settings) -> dict[str, Any]:
             "includeDeveloperJunk": settings.scan.include_developer_junk,
             "includeMailAttachments": settings.scan.include_mail_attachments,
             "includeTrashBins": settings.scan.include_trash_bins,
-            "cacheMinBytes": settings.scan.cache_min_bytes,
+            "cacheMinBytes": format_size(settings.scan.cache_min_bytes),
             "cacheMinAgeDays": settings.scan.cache_min_age_days,
             "logMinAgeDays": settings.scan.log_min_age_days,
-            "logMinBytes": settings.scan.log_min_bytes,
-            "devJunkMinBytes": settings.scan.dev_junk_min_bytes,
+            "logMinBytes": format_size(settings.scan.log_min_bytes),
+            "devJunkMinBytes": format_size(settings.scan.dev_junk_min_bytes),
             "devJunkMinAgeDays": settings.scan.dev_junk_min_age_days,
-            "mailAttachmentMinBytes": settings.scan.mail_attachment_min_bytes,
+            "mailAttachmentMinBytes": format_size(settings.scan.mail_attachment_min_bytes),
             "mailAttachmentMinAgeDays": settings.scan.mail_attachment_min_age_days,
-            "trashMinBytes": settings.scan.trash_min_bytes,
+            "trashMinBytes": format_size(settings.scan.trash_min_bytes),
             "trashMinAgeDays": settings.scan.trash_min_age_days,
             "includeDuplicates": settings.scan.include_duplicates,
-            "duplicateMinBytes": settings.scan.duplicate_min_bytes,
-            "largeFileMinGB": settings.scan.large_file_min_bytes / (1024**3),
+            "duplicateMinBytes": format_size(settings.scan.duplicate_min_bytes),
+            "largeFileMinBytes": format_size(settings.scan.large_file_min_bytes),
             "largeFileRoots": list(settings.scan.large_file_roots),
-            "installerMinBytes": settings.scan.installer_min_bytes,
+            "installerMinBytes": format_size(settings.scan.installer_min_bytes),
             "installerMinAgeDays": settings.scan.installer_min_age_days,
             "maxDepth": settings.scan.max_depth,
             "followSymlinks": settings.scan.follow_symlinks,
@@ -336,14 +410,19 @@ def _require_number(
 
 
 def _large_file_min_bytes(scan_raw: dict[str, Any]) -> int:
-    """Prefer largeFileMinGB; accept legacy largeFileMinBytes."""
+    """Prefer largeFileMinBytes (as size string/bytes); fallback to largeFileMinGB."""
+    if "largeFileMinBytes" in scan_raw:
+        return _require_size(scan_raw, "largeFileMinBytes", 1024 * 1024 * 1024)
     if "largeFileMinGB" in scan_raw:
+        val = scan_raw["largeFileMinGB"]
+        if isinstance(val, str):
+            try:
+                return parse_size(val)
+            except ConfigError as exc:
+                raise ConfigError(f"largeFileMinGB is not a valid size: {exc}") from exc
+        # legacy/numeric gigabytes
         gb = _require_number(scan_raw, "largeFileMinGB", 1.0, min_value=0.001)
         return int(gb * (1024**3))
-    if "largeFileMinBytes" in scan_raw:
-        return _require_int(
-            scan_raw, "largeFileMinBytes", 1024 * 1024 * 1024, min_value=1
-        )
     return 1024 * 1024 * 1024
 
 
@@ -398,28 +477,28 @@ def parse_settings(data: dict[str, Any], *, path: Path | None = None) -> Setting
             ),
             include_trash_bins=_require_bool(scan_raw, "includeTrashBins", True),
             include_duplicates=_require_bool(scan_raw, "includeDuplicates", False),
-            cache_min_bytes=_require_int(scan_raw, "cacheMinBytes", 50 * 1024 * 1024),
+            cache_min_bytes=_require_size(scan_raw, "cacheMinBytes", 50 * 1024 * 1024),
             cache_min_age_days=_require_int(scan_raw, "cacheMinAgeDays", 3),
             log_min_age_days=_require_int(scan_raw, "logMinAgeDays", 30),
-            log_min_bytes=_require_int(scan_raw, "logMinBytes", 0),
-            dev_junk_min_bytes=_require_int(
+            log_min_bytes=_require_size(scan_raw, "logMinBytes", 0),
+            dev_junk_min_bytes=_require_size(
                 scan_raw, "devJunkMinBytes", 50 * 1024 * 1024
             ),
             dev_junk_min_age_days=_require_int(scan_raw, "devJunkMinAgeDays", 30),
-            mail_attachment_min_bytes=_require_int(
+            mail_attachment_min_bytes=_require_size(
                 scan_raw, "mailAttachmentMinBytes", 5 * 1024 * 1024
             ),
             mail_attachment_min_age_days=_require_int(
                 scan_raw, "mailAttachmentMinAgeDays", 30
             ),
-            trash_min_bytes=_require_int(scan_raw, "trashMinBytes", 0),
+            trash_min_bytes=_require_size(scan_raw, "trashMinBytes", 0),
             trash_min_age_days=_require_int(scan_raw, "trashMinAgeDays", 7),
-            duplicate_min_bytes=_require_int(scan_raw, "duplicateMinBytes", 1024 * 1024),
+            duplicate_min_bytes=_require_size(scan_raw, "duplicateMinBytes", 1024 * 1024),
             large_file_min_bytes=_large_file_min_bytes(scan_raw),
             large_file_roots=_require_str_list(
                 scan_raw, "largeFileRoots", list(DEFAULT_LARGE_FILE_ROOTS)
             ),
-            installer_min_bytes=_require_int(
+            installer_min_bytes=_require_size(
                 scan_raw, "installerMinBytes", 100 * 1024 * 1024
             ),
             installer_min_age_days=_require_int(scan_raw, "installerMinAgeDays", 30),
