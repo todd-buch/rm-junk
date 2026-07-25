@@ -82,6 +82,11 @@ Large-file scan defaults to **Library / Docker / VMs** — not whole home.
 |-----|--------|
 | `scan.largeFileMinGB` | Minimum size in **gigabytes** (e.g. `50`). Preferred over bytes. |
 | `scan.largeFileRoots` | Where to look for large items |
+| `scan.includeLogs` | Scan system and user logs (`true` by default) |
+| `scan.includeDeveloperJunk` | Scan package manager caches and Xcode tools data (`true` by default) |
+| `scan.includeMailAttachments` | Scan local Mail attachment caches (`false` by default) |
+| `scan.includeTrashBins` | Scan stale files in Trash folders (`true` by default) |
+| `scan.includeDuplicates` | Scan for duplicate files under roots (`false` by default) |
 | `excludePaths` | Never enter these directories |
 
 ## Safety

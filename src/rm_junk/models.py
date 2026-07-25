@@ -14,6 +14,7 @@ class Category(str, Enum):
     INSTALLER = "installer"
     LARGE = "large"
     BROKEN_LINK = "broken_link"
+    LOG = "log"
 
 
 class Confidence(str, Enum):

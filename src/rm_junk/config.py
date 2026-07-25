@@ -113,8 +113,22 @@ DEFAULTS: dict[str, Any] = {
         "includeLeftoverAppData": True,
         "includeLargeFiles": True,
         "includeOldInstallers": True,
+        "includeLogs": True,
+        "includeDeveloperJunk": True,
+        "includeMailAttachments": False,
+        "includeTrashBins": True,
         "cacheMinBytes": 50 * 1024 * 1024,
         "cacheMinAgeDays": 3,
+        "logMinAgeDays": 30,
+        "logMinBytes": 0,
+        "devJunkMinBytes": 50 * 1024 * 1024,
+        "devJunkMinAgeDays": 30,
+        "mailAttachmentMinBytes": 5 * 1024 * 1024,
+        "mailAttachmentMinAgeDays": 30,
+        "trashMinBytes": 0,
+        "trashMinAgeDays": 7,
+        "includeDuplicates": False,
+        "duplicateMinBytes": 1024 * 1024,
         # largeFileMinGB is optional; default applied in _large_file_min_bytes()
         "largeFileRoots": list(DEFAULT_LARGE_FILE_ROOTS),
         "installerMinBytes": 100 * 1024 * 1024,
@@ -168,8 +182,22 @@ class ScanSettings:
     include_leftover_app_data: bool = True
     include_large_files: bool = True
     include_old_installers: bool = True
+    include_logs: bool = True
+    include_developer_junk: bool = True
+    include_mail_attachments: bool = False
+    include_trash_bins: bool = True
+    include_duplicates: bool = False
     cache_min_bytes: int = 50 * 1024 * 1024
     cache_min_age_days: int = 3
+    log_min_age_days: int = 30
+    log_min_bytes: int = 0
+    dev_junk_min_bytes: int = 50 * 1024 * 1024
+    dev_junk_min_age_days: int = 30
+    mail_attachment_min_bytes: int = 5 * 1024 * 1024
+    mail_attachment_min_age_days: int = 30
+    trash_min_bytes: int = 0
+    trash_min_age_days: int = 7
+    duplicate_min_bytes: int = 1024 * 1024
     large_file_min_bytes: int = 1024 * 1024 * 1024
     large_file_roots: list[str] = field(
         default_factory=lambda: list(DEFAULT_LARGE_FILE_ROOTS)
@@ -234,8 +262,22 @@ def settings_to_dict(settings: Settings) -> dict[str, Any]:
             "includeLeftoverAppData": settings.scan.include_leftover_app_data,
             "includeLargeFiles": settings.scan.include_large_files,
             "includeOldInstallers": settings.scan.include_old_installers,
+            "includeLogs": settings.scan.include_logs,
+            "includeDeveloperJunk": settings.scan.include_developer_junk,
+            "includeMailAttachments": settings.scan.include_mail_attachments,
+            "includeTrashBins": settings.scan.include_trash_bins,
             "cacheMinBytes": settings.scan.cache_min_bytes,
             "cacheMinAgeDays": settings.scan.cache_min_age_days,
+            "logMinAgeDays": settings.scan.log_min_age_days,
+            "logMinBytes": settings.scan.log_min_bytes,
+            "devJunkMinBytes": settings.scan.dev_junk_min_bytes,
+            "devJunkMinAgeDays": settings.scan.dev_junk_min_age_days,
+            "mailAttachmentMinBytes": settings.scan.mail_attachment_min_bytes,
+            "mailAttachmentMinAgeDays": settings.scan.mail_attachment_min_age_days,
+            "trashMinBytes": settings.scan.trash_min_bytes,
+            "trashMinAgeDays": settings.scan.trash_min_age_days,
+            "includeDuplicates": settings.scan.include_duplicates,
+            "duplicateMinBytes": settings.scan.duplicate_min_bytes,
             "largeFileMinGB": settings.scan.large_file_min_bytes / (1024**3),
             "largeFileRoots": list(settings.scan.large_file_roots),
             "installerMinBytes": settings.scan.installer_min_bytes,
@@ -347,8 +389,32 @@ def parse_settings(data: dict[str, Any], *, path: Path | None = None) -> Setting
             include_old_installers=_require_bool(
                 scan_raw, "includeOldInstallers", True
             ),
+            include_logs=_require_bool(scan_raw, "includeLogs", True),
+            include_developer_junk=_require_bool(
+                scan_raw, "includeDeveloperJunk", True
+            ),
+            include_mail_attachments=_require_bool(
+                scan_raw, "includeMailAttachments", False
+            ),
+            include_trash_bins=_require_bool(scan_raw, "includeTrashBins", True),
+            include_duplicates=_require_bool(scan_raw, "includeDuplicates", False),
             cache_min_bytes=_require_int(scan_raw, "cacheMinBytes", 50 * 1024 * 1024),
             cache_min_age_days=_require_int(scan_raw, "cacheMinAgeDays", 3),
+            log_min_age_days=_require_int(scan_raw, "logMinAgeDays", 30),
+            log_min_bytes=_require_int(scan_raw, "logMinBytes", 0),
+            dev_junk_min_bytes=_require_int(
+                scan_raw, "devJunkMinBytes", 50 * 1024 * 1024
+            ),
+            dev_junk_min_age_days=_require_int(scan_raw, "devJunkMinAgeDays", 30),
+            mail_attachment_min_bytes=_require_int(
+                scan_raw, "mailAttachmentMinBytes", 5 * 1024 * 1024
+            ),
+            mail_attachment_min_age_days=_require_int(
+                scan_raw, "mailAttachmentMinAgeDays", 30
+            ),
+            trash_min_bytes=_require_int(scan_raw, "trashMinBytes", 0),
+            trash_min_age_days=_require_int(scan_raw, "trashMinAgeDays", 7),
+            duplicate_min_bytes=_require_int(scan_raw, "duplicateMinBytes", 1024 * 1024),
             large_file_min_bytes=_large_file_min_bytes(scan_raw),
             large_file_roots=_require_str_list(
                 scan_raw, "largeFileRoots", list(DEFAULT_LARGE_FILE_ROOTS)

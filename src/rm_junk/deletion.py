@@ -16,7 +16,9 @@ def delete_path(path: str | Path, policy: PathPolicy, *, to_trash: bool = True) 
     if not target.exists() and not target.is_symlink():
         raise DeletionError(f"Path does not exist: {target}")
 
-    if to_trash:
+    is_in_trash = ".Trash" in target.parts or ".Trashes" in target.parts
+
+    if to_trash and not is_in_trash:
         try:
             from send2trash import send2trash
         except ImportError as exc:
