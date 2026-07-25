@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "scan": {
+    "includeHomeLibraryCaches": true,
+    "includeLeftoverAppData": true,
+    "includeLargeFiles": true,
+    "includeOldInstallers": true,
+    "cacheMinBytes": 52428800,
+    "cacheMinAgeDays": 3,
+    "largeFileMinGB": 50,
+    "largeFileRoots": [
+      "~/Library",
+      "~/.docker",
+      "~/.vagrant.d",
+      "~/.cache",
+      "~/.local",
+      "~/Parallels",
+      "~/VirtualBox VMs"
+    ],
+    "installerMinBytes": 104857600,
+    "installerMinAgeDays": 30,
+    "maxDepth": 4,
+    "followSymlinks": false,
+    "minConfidenceForQueue": "medium",
+    "workers": 0
+  },
+  "excludePaths": [
+    "~/Documents",
+    "~/Desktop",
+    "~/Pictures",
+    "~/Movies",
+    "~/Music"
+  ],
+  "whitelist": [],
+  "deletion": {
+    "moveToTrash": true,
+    "confirmEachItem": true
+  }
+}

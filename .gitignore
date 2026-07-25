@@ -1,3 +1,8 @@
+# Project local (not tracked)
+context.md
+settings.json
+findings.json
+
 # macOS System
 .DS_Store
 
@@ -13,6 +18,16 @@ ENV/
 # IDE & Editor Settings
 .vscode/
 .idea/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg
 
 # General Build / Distribution
 dist/
