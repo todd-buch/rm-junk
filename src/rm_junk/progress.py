@@ -17,10 +17,16 @@ def _term_width() -> int:
 
 
 def _fmt_seconds(seconds: float) -> str:
-    seconds = max(0, int(seconds))
+    """Human duration; never truncates a positive ETA down to a bare '0s'."""
+    if seconds <= 0:
+        return "0s"
+    if seconds < 1:
+        return "<1s"
     if seconds < 60:
-        return f"{seconds}s"
-    minutes, sec = divmod(seconds, 60)
+        # Prefer whole seconds once we're past 1s
+        return f"{int(round(seconds))}s"
+    total = int(round(seconds))
+    minutes, sec = divmod(total, 60)
     if minutes < 60:
         return f"{minutes}m{sec:02d}s"
     hours, minutes = divmod(minutes, 60)
@@ -29,6 +35,10 @@ def _fmt_seconds(seconds: float) -> str:
 
 class ProgressBar:
     """Thread-safe single-line progress bar for TTY stderr."""
+
+    # Weight recent tick duration more so slow late work isn't hidden by
+    # hundreds of near-instant early ticks.
+    _EMA_ALPHA = 0.35
 
     def __init__(
         self,
@@ -47,7 +57,10 @@ class ProgressBar:
         self.n = 0
         self._item = ""
         self._lock = threading.Lock()
-        self._start = time.monotonic()
+        now = time.monotonic()
+        self._start = now
+        self._last_tick_at = now
+        self._ema_sec_per_unit: float | None = None
         self._closed = False
         if self.enabled:
             self._render()
@@ -57,6 +70,45 @@ class ProgressBar:
             return bool(self.file.isatty())
         except Exception:
             return False
+
+    def _note_progress(self, units: int) -> None:
+        """Update per-unit timing model after `units` completed."""
+        if units <= 0:
+            return
+        now = time.monotonic()
+        dt = max(0.0, now - self._last_tick_at)
+        self._last_tick_at = now
+        inst = dt / units
+        # Ignore pure-zero intervals (batch of same-timestamp updates) for EMA
+        # so we don't drive sec/unit to 0 permanently.
+        if inst <= 0:
+            inst = 1e-3
+        if self._ema_sec_per_unit is None:
+            self._ema_sec_per_unit = inst
+        else:
+            a = self._EMA_ALPHA
+            self._ema_sec_per_unit = a * inst + (1.0 - a) * self._ema_sec_per_unit
+
+    def _eta_seconds(self, now: float) -> float | None:
+        """Estimate remaining seconds, or None if not enough data."""
+        remaining = max(0, self.total - self.n) if self.total else 0
+        if remaining <= 0:
+            return 0.0
+        stall = max(0.0, now - self._last_tick_at)
+
+        if self._ema_sec_per_unit is not None and self._ema_sec_per_unit > 0:
+            # Time for remaining units, but if we've been stuck on the current
+            # unit longer than expected, count that stall toward the current one.
+            eta = self._ema_sec_per_unit * remaining
+            if stall > self._ema_sec_per_unit:
+                eta = stall + self._ema_sec_per_unit * max(0, remaining - 1)
+            return eta
+
+        # Fallback: overall average (only once we have completions + elapsed)
+        elapsed = now - self._start
+        if self.n > 0 and elapsed > 0:
+            return (elapsed / self.n) * remaining
+        return None
 
     def add_total(self, n: int) -> None:
         if n <= 0:
@@ -82,6 +134,8 @@ class ProgressBar:
         with self._lock:
             if self._closed:
                 return
+            if n > 0:
+                self._note_progress(n)
             self.n += n
             if self.total:
                 self.n = min(self.n, self.total)
@@ -127,15 +181,24 @@ class ProgressBar:
 
     def _render(self) -> None:
         width = _term_width()
-        elapsed = time.monotonic() - self._start
+        now = time.monotonic()
+        elapsed = now - self._start
         rate = self.n / elapsed if elapsed > 0 else 0.0
 
         if self.total > 0:
             frac = min(1.0, self.n / self.total)
             pct = int(frac * 100)
-            eta = (elapsed / self.n) * (self.total - self.n) if self.n else 0.0
             counts = f"{self.n}/{self.total}"
-            tail = f"{pct:3d}% {counts} {_fmt_seconds(elapsed)} ETA {_fmt_seconds(eta)}"
+            eta = self._eta_seconds(now)
+            if self.n >= self.total:
+                eta_s = "0s"
+            elif eta is None:
+                eta_s = "…"
+            else:
+                eta_s = _fmt_seconds(eta)
+            tail = (
+                f"{pct:3d}% {counts} {_fmt_seconds(elapsed)} ETA {eta_s}"
+            )
         else:
             frac = 0.0
             tail = f"{self.n} {_fmt_seconds(elapsed)} {rate:.1f}/s"

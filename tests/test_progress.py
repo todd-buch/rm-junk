@@ -1,6 +1,35 @@
+import time
 from io import StringIO
 
-from rm_junk.progress import NullProgress, ProgressBar, TerminalProgress
+from rm_junk.progress import (
+    NullProgress,
+    ProgressBar,
+    TerminalProgress,
+    _fmt_seconds,
+)
+
+
+def test_fmt_seconds_never_shows_bare_zero_for_positive():
+    assert _fmt_seconds(0) == "0s"
+    assert _fmt_seconds(0.4) == "<1s"
+    assert _fmt_seconds(1.2) == "1s"
+    assert _fmt_seconds(65) == "1m05s"
+
+
+def test_eta_uses_recent_pace_not_only_overall_average():
+    bar = ProgressBar(10, desc="T", file=StringIO(), enabled=False)
+    # Simulate 8 instant completions then a slow one
+    bar._last_tick_at = time.monotonic() - 0.001
+    bar._note_progress(8)
+    bar.n = 8
+    # Next unit took 5 seconds
+    bar._last_tick_at = time.monotonic() - 5.0
+    bar._note_progress(1)
+    bar.n = 9
+    eta = bar._eta_seconds(time.monotonic())
+    assert eta is not None
+    # Remaining 1 unit should be on the order of seconds, not ~0
+    assert eta >= 1.0
 
 
 def test_progress_bar_completes():
