@@ -45,20 +45,19 @@ def cmd_scan(args: argparse.Namespace) -> int:
         return 1
 
     policy = PathPolicy(settings)
-    workers = settings.scan.workers
     from rm_junk.parallel import default_workers
     from rm_junk.progress import NullProgress, TerminalProgress
 
-    w = default_workers(workers or None)
-    if args.debug:
-        print(
-            f"Scanning… ({w} workers; permission-denied paths are skipped)",
-            flush=True,
-        )
+    w = default_workers(settings.scan.workers or None)
+    print(
+        f"rm-junk scan  ·  {w} workers  ·  permission-denied paths skipped",
+        flush=True,
+    )
     if args.no_progress:
         progress = NullProgress()
     else:
-        progress = TerminalProgress(debug=args.debug)
+        progress = TerminalProgress(debug=args.debug, workers=w)
+
     findings = run_all_scanners(settings, policy, progress=progress)
 
     if args.queue_only:
@@ -76,7 +75,15 @@ def cmd_scan(args: argparse.Namespace) -> int:
         return 0
 
     total = sum(f.size_bytes for f in findings)
-    print(f"Found {len(findings)} item(s), ~{format_bytes(total)} total:\n")
+    by_cat: dict[str, int] = {}
+    for f in findings:
+        by_cat[f.category.value] = by_cat.get(f.category.value, 0) + 1
+
+    print(f"\nFound {len(findings)} item(s)  ·  ~{format_bytes(total)}")
+    if by_cat:
+        summary = "  ".join(f"{k}={v}" for k, v in sorted(by_cat.items()))
+        print(f"By category: {summary}")
+    print()
     for i, finding in enumerate(findings, start=1):
         _print_finding(i, finding)
 
@@ -86,10 +93,9 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
     store = FindingStore()
     store.replace_pending_with(findings)
-    print(f"\nSaved {len(findings)} pending finding(s) to {store.path}")
-    print("Review with:  python -m rm_junk list")
-    print("Delete:       python -m rm_junk delete <id>")
-    print("Keep:         python -m rm_junk keep <id>")
+    print(f"\nSaved {len(findings)} pending finding(s) → {store.path}")
+    print("Next:  rm-junk list")
+    print("       rm-junk delete <id>   |   rm-junk keep <id>")
     return 0
 
 

@@ -91,24 +91,39 @@ def _expand_work_items(
     policy: PathPolicy,
     *,
     max_depth: int,
+    depth: int = 1,
 ) -> list[tuple[Path, int]]:
     """Return (path, start_depth) work units.
 
-    Expand bulky first-level dirs into their children so one giant folder
-    (e.g. Library/Containers) is not a single 0→done progress tick.
+    Expand bulky dirs so work is fine-grained enough for multi-core pools.
+    One giant ``Containers`` folder must not monopolize a single worker.
     """
     items: list[tuple[Path, int]] = []
     for child in children:
         should_expand = child.name in EXPAND_ALWAYS or any(
             part in EXPAND_ALWAYS for part in child.parts[-3:]
         )
-        if should_expand and max_depth >= 2:
-            subs = _list_dir_children(child, policy)
-            if subs:
+        # Also expand any dir with many immediate children (keeps pool busy)
+        subs = _list_dir_children(child, policy) if should_expand or depth < 3 else []
+        if should_expand and max_depth >= depth + 1 and subs:
+            # One more level for very wide trees (Containers apps, App Support)
+            if len(subs) > 8 and depth < 3:
                 for sub in subs:
-                    items.append((sub, 2))
-                continue
-        items.append((child, 1))
+                    nested = _list_dir_children(sub, policy)
+                    if nested and len(nested) > 4:
+                        for n in nested:
+                            items.append((n, depth + 2))
+                    else:
+                        items.append((sub, depth + 1))
+            else:
+                for sub in subs:
+                    items.append((sub, depth + 1))
+            continue
+        if not should_expand and len(subs) >= 24 and max_depth >= depth + 1:
+            for sub in subs:
+                items.append((sub, depth + 1))
+            continue
+        items.append((child, depth))
     return items
 
 
@@ -129,6 +144,7 @@ def scan_large(
     workers = default_workers(settings.scan.workers or None)
     home = Path.home().resolve()
 
+    prog.set_parallelism(workers)
     prog.log(f"Large-file scan using {workers} worker threads…")
 
     for root_str in settings.scan.large_file_roots:
@@ -185,15 +201,14 @@ def scan_large(
         prog.add_work(len(work))
         prog.log(f"  walking {len(work)} folders under {root}…")
 
+        def _label(path: Path) -> str:
+            try:
+                return f"{path.parent.name}/{path.name}"
+            except Exception:
+                return path.name
+
         def walk_one(item: tuple[Path, int]) -> tuple[Path, list[Finding], int]:
             path, start_depth = item
-            label = path.name
-            try:
-                # Prefer parent/name for context when expanded
-                label = f"{path.parent.name}/{path.name}"
-            except Exception:
-                pass
-            prog.status(f"scanning {label}…")
             reported: list[Path] = []
             child_findings: list[Finding] = []
             size = _walk(
@@ -205,21 +220,19 @@ def scan_large(
                 findings=child_findings,
                 reported_ancestors=reported,
                 home=home,
+                size_workers=max(1, workers // 4),
             )
             return path, child_findings, size
+
+        def on_start(item: tuple[Path, int]) -> None:
+            prog.begin(_label(item[0]))
 
         def on_done(
             item: tuple[Path, int], result: tuple[Path, list[Finding], int]
         ) -> None:
             path, child_findings, size = result
-            try:
-                label = f"{path.parent.name}/{path.name}"
-            except Exception:
-                label = path.name
-            prog.tick(
-                1,
-                item=f"{label} ({_fmt(size)})",
-            )
+            label = _label(path)
+            prog.tick(1, item=f"{label} ({_fmt(size)})")
             prog.log(
                 f"    done {label} (~{_fmt(size)}, {len(child_findings)} hit(s))"
             )
@@ -228,6 +241,7 @@ def scan_large(
             walk_one,
             work,
             workers=workers,
+            on_start=on_start,
             on_done=on_done,
         )
         for _path, child_findings, _size in results:
@@ -257,8 +271,9 @@ def _walk(
     findings: list[Finding],
     reported_ancestors: list[Path],
     home: Path,
+    size_workers: int = 1,
 ) -> int:
-    """Sequential walk of one subtree (runs inside a worker thread)."""
+    """Walk one subtree (runs inside a worker thread)."""
 
     def under_reported(p: Path) -> bool:
         try:
@@ -303,7 +318,7 @@ def _walk(
         return 0
 
     if depth >= max_depth:
-        size = dir_size(path, policy)
+        size = dir_size(path, policy, workers=size_workers)
         if size >= threshold and not under_reported(path):
             findings.append(_make_large_finding(path, size, at_max_depth=True))
             try:
@@ -332,6 +347,7 @@ def _walk(
                         findings=findings,
                         reported_ancestors=reported_ancestors,
                         home=home,
+                        size_workers=size_workers,
                     )
                     total += child_size
                     child_sizes.append((child, child_size))

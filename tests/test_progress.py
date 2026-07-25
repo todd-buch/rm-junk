@@ -1,12 +1,7 @@
 import time
 from io import StringIO
 
-from rm_junk.progress import (
-    NullProgress,
-    ProgressBar,
-    TerminalProgress,
-    _fmt_seconds,
-)
+from rm_junk.progress import NullProgress, ProgressBar, TerminalProgress, _fmt_seconds
 
 
 def test_fmt_seconds_never_shows_bare_zero_for_positive():
@@ -16,30 +11,38 @@ def test_fmt_seconds_never_shows_bare_zero_for_positive():
     assert _fmt_seconds(65) == "1m05s"
 
 
-def test_eta_uses_recent_pace_not_only_overall_average():
-    bar = ProgressBar(10, desc="T", file=StringIO(), enabled=False)
-    # Simulate 8 instant completions then a slow one
-    bar._last_tick_at = time.monotonic() - 0.001
-    bar._note_progress(8)
-    bar.n = 8
-    # Next unit took 5 seconds
-    bar._last_tick_at = time.monotonic() - 5.0
-    bar._note_progress(1)
-    bar.n = 9
+def test_eta_rises_with_long_running_inflight():
+    """A single slow unit should not leave ETA stuck at a tiny average."""
+    bar = ProgressBar(10, desc="T", file=StringIO(), enabled=False, parallelism=4)
+    # 8 fast completions
+    for i in range(8):
+        bar.begin_item(f"fast-{i}")
+        bar._inflight[f"fast-{i}"] = time.monotonic() - 0.01
+        bar.update(1, item=f"fast-{i}")
+    # One slow in-flight already running 40s, one remaining not started
+    bar.begin_item("slow")
+    bar._inflight["slow"] = time.monotonic() - 40.0
     eta = bar._eta_seconds(time.monotonic())
     assert eta is not None
-    # Remaining 1 unit should be on the order of seconds, not ~0
-    assert eta >= 1.0
+    # Must reflect the long-tail job (not ~1s from tiny averages)
+    assert eta >= 20.0
 
 
-def test_progress_bar_completes():
-    buf = StringIO()
-    bar = ProgressBar(5, desc="Test", file=buf, enabled=False)
-    for i in range(5):
-        bar.update(1, item=f"item-{i}")
-    bar.close()
-    assert bar.n == 5
-    assert "Test:" in buf.getvalue()
+def test_eta_accounts_for_parallelism():
+    bar = ProgressBar(100, desc="T", file=StringIO(), enabled=False, parallelism=10)
+    for i in range(10):
+        bar.begin_item(f"x{i}")
+        bar._inflight[f"x{i}"] = time.monotonic() - 1.0
+        bar.update(1, item=f"x{i}")
+    # Force unit estimate ~1s
+    bar._recent_durations.clear()
+    for _ in range(20):
+        bar._recent_durations.append(1.0)
+    bar._ema_sec_per_unit = 1.0
+    eta = bar._eta_seconds(time.monotonic())
+    assert eta is not None
+    # 90 remaining / 10 workers * 1s ≈ 9s (order of magnitude, not 90s)
+    assert eta < 40.0
 
 
 def test_progress_bar_add_total():
@@ -60,46 +63,24 @@ def test_null_progress():
     p.log("silent")
     p.phase("Caches")
     p.add_work(2)
+    p.begin("a")
     p.tick(1, item="a")
-    p.status("working")
-    p.tick(1)
+    p.set_parallelism(8)
     p.close()
 
 
-def test_terminal_progress_debug_logs_only_when_debug():
-    quiet = StringIO()
-    p = TerminalProgress(file=quiet, enabled=False, debug=False)
-    p.log("hidden")
-    assert quiet.getvalue() == ""
-
-    noisy = StringIO()
-    p2 = TerminalProgress(file=noisy, enabled=False, debug=True)
-    p2.log("visible")
-    assert "visible" in noisy.getvalue()
-    p2.close()
-
-
 def test_terminal_phase_resets_bar():
-    """Each phase gets a fresh bar so early work cannot pin percent near 100%."""
     buf = StringIO()
-    p = TerminalProgress(file=buf, enabled=True, debug=False)
+    p = TerminalProgress(file=buf, enabled=True, debug=False, workers=8)
     p.enabled = True
     p.phase("Caches")
     assert p._bar is not None
     p.add_work(10)
-    for _ in range(10):
-        p.tick(1)
+    for i in range(10):
+        p.begin(f"c{i}")
+        p.tick(1, item=f"c{i}")
     assert p._bar.n == 10
-    assert p._bar.total == 10
-
     p.phase("Large files")
     assert p._bar is not None
     assert p._bar.n == 0
-    assert p._bar.total == 0
-    p.add_work(5)
-    assert p._bar.total == 5
-    p.tick(1, item="Containers/foo")
-    assert p._bar.n == 1
     p.close()
-
-

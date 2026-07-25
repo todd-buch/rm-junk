@@ -1,10 +1,8 @@
-# rm-junk (terminal)
+# rm-junk (CLI)
 
 macOS **command-line** junk finder: leftover caches, orphaned app data, old installers, and large folders — with **manual approval** before anything is removed.
 
-This branch is the **standalone terminal app**. No menu bar, no GUI. A native Mac app plan lives in [`docs/mac-app-plan.md`](docs/mac-app-plan.md).
-
-Nothing is deleted automatically.
+Nothing is deleted automatically. There is no menu-bar app on this branch.
 
 ## Requirements
 
@@ -20,8 +18,6 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-After install you can use either:
-
 ```bash
 python -m rm_junk …
 # or
@@ -31,75 +27,68 @@ rm-junk …
 ## Quick start
 
 ```bash
-# 1. Create local settings (once)
 rm-junk init
-
-# 2. Scan (progress bars in the terminal)
-rm-junk scan --dry-run          # preview only
-rm-junk scan                    # save pending findings
-
-# 3. Review & act
+rm-junk scan --dry-run          # preview
+rm-junk scan                    # save findings
 rm-junk list
-rm-junk delete <id>             # move to Trash (confirms first)
-rm-junk keep <id>               # whitelist — never flag again
+rm-junk delete <id>             # Trash (confirms)
+rm-junk keep <id>               # whitelist
+```
+
+## Scan performance
+
+Scans use a **thread pool** (default roughly `cpu × 8`, between 16 and 64 workers) because work is mostly disk I/O (`stat` / `scandir` release the GIL).
+
+| Setting | Meaning |
+|---------|---------|
+| `scan.workers` | Thread count (`0` = auto). Raise (e.g. `48`) on fast SSDs if you want more concurrency. |
+
+Progress bars show **active** jobs and **ETA** that accounts for:
+
+- Parallel wall-clock (remaining ÷ workers × time-per-item)
+- Long-tail folders already running longer than the average (ETA rises instead of stuck at “16s”)
+
+```bash
+rm-junk scan --debug            # verbose path logs
+rm-junk scan --no-progress      # quiet
 ```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `init` | Create `settings.json` from the example if missing |
-| `scan` | Run scanners; print findings; optionally save queue |
-| `list` | Show pending findings from the last scan |
-| `delete <id>` | Trash one finding (prompt unless `-y`) |
-| `keep <id>` | Add path to whitelist and drop from pending |
-| `paths` | Print where settings/findings live |
+| `init` | Create `settings.json` if missing |
+| `scan` | Run scanners; print + optionally save queue |
+| `list` | Pending findings |
+| `delete <id>` | Trash one finding (`-y` skips confirm) |
+| `keep <id>` | Whitelist path |
+| `paths` | Show config/data locations |
 
-### `scan` flags
+## Config
 
-| Flag | Meaning |
+Project-local by default (or `RM_JUNK_HOME`):
+
+| File | Purpose |
 |------|---------|
-| `--dry-run` | Print results; do **not** write `findings.json` |
-| `--debug` | Verbose phase logs + current path names on the bar |
-| `--no-progress` | No progress bar |
-| `--queue-only` | Only keep findings at/above `minConfidenceForQueue` |
-| `--config PATH` | Use a specific settings file |
+| `settings.json` | Your config (gitignored) |
+| `findings.json` | Pending results (gitignored) |
+| `settings.example.json` | Defaults |
 
-## Config & data files
+Large-file scan defaults to **Library / Docker / VMs** — not whole home. See example file for `largeFileRoots`, `excludePaths`, thresholds.
 
-By default these sit in the **project directory** (this repo):
+## Safety
 
-| File | Purpose | Git |
-|------|---------|-----|
-| `settings.json` | Your preferences | ignored |
-| `findings.json` | Pending scan results | ignored |
-| `settings.example.json` | Documented defaults | tracked |
+- Explicit delete only
+- Prefer **Trash** (`send2trash`)
+- Hard denylist + exclude paths + whitelist
+- Skips privacy-sensitive Library areas
 
-Override the project root with:
+## Development
 
 ```bash
-export RM_JUNK_HOME=~/.config/rm-junk
-rm-junk init
+pytest
 ```
 
-### Important settings
+## Branch
 
-| Key | Default idea |
-|-----|----------------|
-| `scan.largeFileRoots` | `~/Library`, Docker/VM paths — **not** whole home |
-| `scan.largeFileMinBytes` | 1 GB |
-| `scan.maxDepth` | 4 |
-| `scan.cacheMinBytes` / `cacheMinAgeDays` | Size + staleness gates for caches |
-| `excludePaths` | Never enter (Documents, Desktop, media by default) |
-| `whitelist` | Kept paths (also filled by `keep`) |
-| `scan.workers` | `0` = auto thread count |
-| `deletion.moveToTrash` | Prefer Trash over permanent delete |
-
-## What gets scanned
-
-1. **Caches** — `~/Library/Caches`, container caches, optional Homebrew / Xcode DerivedData  
-2. **Leftovers** — dead LaunchAgents, orphaned saved state / prefs (conservative)  
-3. **Installers** — old large `.dmg` / `.pkg` / `.zip` in Downloads (shallow)  
-4. **Large files/folders** — under configured roots only  
-
-Privacy-sensitive Library areas (Mail, Messages, Safari, …) are skipped. System paths are hard-denied. This project directory is never suggested for deletion.
+**`feature/cli-perf`** — CLI only: faster parallel scans, better ETA, clearer terminal UI.

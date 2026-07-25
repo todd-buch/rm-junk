@@ -28,6 +28,18 @@ def test_map_as_completed_calls_on_done():
 
 def test_default_workers_respects_config():
     assert default_workers(8) == 8
-    assert default_workers(0) is not None  # 0 treated as unset via callers; helper sees 0 as falsy only if None
     auto = default_workers(None)
-    assert 4 <= auto <= 32
+    assert 16 <= auto <= 64
+
+
+def test_map_as_completed_on_start():
+    started: list[int] = []
+
+    def work(x: int) -> int:
+        return x
+
+    def on_start(x: int) -> None:
+        started.append(x)
+
+    map_as_completed(work, [1, 2, 3], workers=2, on_start=on_start)
+    assert sorted(started) == [1, 2, 3]

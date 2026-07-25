@@ -26,12 +26,14 @@ def run_all_scanners(
     """Run enabled scanners; advance a single progress bar via progress.tick()."""
     prog: ScanProgress = progress or NullProgress()
     workers = default_workers(settings.scan.workers or None)
+    prog.set_parallelism(workers)
     prog.log(f"Scan workers (per scanner): {workers}")
 
     findings: list[Finding] = []
     try:
         if settings.scan.include_home_library_caches:
             prog.phase("Caches")
+            prog.set_parallelism(workers)
             batch = scan_caches(settings, policy, progress=prog)
             prog.log(f"← caches: {len(batch)} finding(s)")
             findings.extend(batch)
@@ -50,6 +52,7 @@ def run_all_scanners(
 
         if settings.scan.include_large_files:
             prog.phase("Large files")
+            prog.set_parallelism(workers)
             batch = scan_large(settings, policy, progress=prog)
             prog.log(f"← large: {len(batch)} finding(s)")
             findings.extend(batch)

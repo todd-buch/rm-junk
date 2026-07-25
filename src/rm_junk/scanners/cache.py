@@ -55,12 +55,13 @@ def _scan_cache_root(
         return []
 
     prog.add_work(len(candidates))
-    prog.log(f"  sizing {len(candidates)} dirs under {root}")
+    prog.set_parallelism(workers)
+    prog.log(f"  sizing {len(candidates)} dirs under {root} ({workers} workers)")
 
     def measure(child: Path) -> Finding | None:
-        prog.status(f"sizing {child.name}…")
         try:
-            size = entry_size(child, policy)
+            # Nested sizing threads for huge cache trees
+            size = entry_size(child, policy, workers=max(1, min(4, workers // 4)))
             if size < min_bytes:
                 return None
             return Finding(
@@ -76,6 +77,9 @@ def _scan_cache_root(
         except OSError:
             return None
 
+    def on_start(child: Path) -> None:
+        prog.begin(child.name)
+
     def on_done(child: Path, result: Finding | None) -> None:
         prog.tick(1, item=child.name)
 
@@ -83,6 +87,7 @@ def _scan_cache_root(
         measure,
         candidates,
         workers=workers,
+        on_start=on_start,
         on_done=on_done,
     )
     return [f for f in results if f is not None]
