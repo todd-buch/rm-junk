@@ -171,6 +171,7 @@ def cmd_delete(args: argparse.Namespace) -> int:
     policy = PathPolicy(settings)
     ok = 0
     failed = 0
+    recovered = 0
     for finding in targets:
         try:
             delete_path(
@@ -179,14 +180,23 @@ def cmd_delete(args: argparse.Namespace) -> int:
                 to_trash=settings.deletion.move_to_trash,
             )
             store.mark(finding.id, FindingStatus.DELETED)
-            print(f"  ✓ {finding.path}")
+            print(f"  ✓ {format_bytes(finding.size_bytes):>10}  {finding.path}")
             ok += 1
+            recovered += finding.size_bytes
         except DeletionError as exc:
             print(f"  ✗ {finding.path}: {exc}", file=sys.stderr)
             failed += 1
 
     done = "Trashed" if settings.deletion.move_to_trash else "Deleted"
-    print(f"\n{done} {ok} item(s)" + (f", {failed} failed" if failed else ""))
+    print()
+    if ok:
+        where = "Trash" if settings.deletion.move_to_trash else "disk"
+        print(f"{done} {ok} item(s)" + (f", {failed} failed" if failed else ""))
+        print(f"Space recovered:  ~{format_bytes(recovered)}")
+        if settings.deletion.move_to_trash:
+            print(f"(Moved to {where} — empty Trash later to free disk fully.)")
+    else:
+        print(f"Nothing removed" + (f" ({failed} failed)" if failed else ""))
     return 1 if failed and not ok else 0
 
 
