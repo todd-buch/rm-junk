@@ -8,15 +8,25 @@
     "cacheMinBytes": 52428800,
     "cacheMinAgeDays": 3,
     "largeFileMinBytes": 1073741824,
-    "largeFileRoots": ["~"],
+    "largeFileRoots": [
+      "~/Library",
+      "~/.docker",
+      "~/.vagrant.d",
+      "~/.cache",
+      "~/.local",
+      "~/Parallels",
+      "~/VirtualBox VMs"
+    ],
     "installerMinBytes": 104857600,
     "installerMinAgeDays": 30,
-    "maxDepth": 6,
+    "maxDepth": 4,
     "followSymlinks": false,
     "minConfidenceForQueue": "medium",
     "workers": 0
   },
   "excludePaths": [
+    "~/Documents",
+    "~/Desktop",
     "~/Pictures",
     "~/Movies",
     "~/Music"

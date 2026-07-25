@@ -33,13 +33,16 @@ Edit that file to set:
 | Key | Purpose |
 |-----|---------|
 | `scan.largeFileMinBytes` | Size threshold for large file/folder scan (default 1 GB) |
-| `scan.largeFileRoots` | Where to look for large items (default `["~"]`) |
+| `scan.largeFileRoots` | Where large-item scan looks (default: `Library`, `.docker`, VMs, etc. — **not** whole home) |
+| `scan.maxDepth` | Max directory depth for large-item scan (default `4`) |
 | `scan.cacheMinBytes` / `cacheMinAgeDays` | Cache size + staleness gates |
-| `excludePaths` | Directories **never** entered |
+| `excludePaths` | Directories **never** entered (default includes Documents, Desktop, media) |
 | `whitelist` | Paths you chose to keep (also written by `keep`) |
 | `background.enabled` | Allow background / menu bar agent |
 | `background.requireManualApproval` | **Must be true** if background is enabled |
 | `scan.workers` | Thread pool size for scans (`0` = auto, typically `cpu × 4`, max 32) |
+
+**Default scope (on purpose):** we do **not** deep-scan all of `~`. Personal folders like Documents / Desktop / Pictures are excluded. Large-file roots target common junk hideouts (`~/Library`, Docker, VMs). Old installers only list top-level files in Downloads (no deep walk). To scan more, add roots in `settings.json` (e.g. `"~/Downloads"` or even `"~"`).
 
 ## Usage
 

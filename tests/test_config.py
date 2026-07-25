@@ -11,6 +11,11 @@ def test_defaults_parse():
     assert settings.scan.large_file_min_bytes == 1024 * 1024 * 1024
     assert settings.background.enabled is False
     assert settings.background.require_manual_approval is True
+    # Do not deep-scan entire home by default
+    assert "~" not in settings.scan.large_file_roots
+    assert "~/Library" in settings.scan.large_file_roots
+    assert "~/Documents" in settings.exclude_paths
+    assert settings.scan.max_depth == 4
 
 
 def test_background_requires_manual_approval():

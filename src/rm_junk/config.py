@@ -45,6 +45,18 @@ def example_settings_path() -> Path:
     return Path(__file__).resolve().parent / "settings.example.json"
 
 
+# Junk-prone locations only — not the whole home tree (Documents, Downloads,
+# Desktop, project folders, etc. are intentionally omitted by default).
+DEFAULT_LARGE_FILE_ROOTS: list[str] = [
+    "~/Library",
+    "~/.docker",
+    "~/.vagrant.d",
+    "~/.cache",
+    "~/.local",
+    "~/Parallels",
+    "~/VirtualBox VMs",
+]
+
 DEFAULTS: dict[str, Any] = {
     "version": DEFAULT_SETTINGS_VERSION,
     "scan": {
@@ -55,15 +67,20 @@ DEFAULTS: dict[str, Any] = {
         "cacheMinBytes": 50 * 1024 * 1024,
         "cacheMinAgeDays": 3,
         "largeFileMinBytes": 1024 * 1024 * 1024,
-        "largeFileRoots": ["~"],
+        "largeFileRoots": list(DEFAULT_LARGE_FILE_ROOTS),
         "installerMinBytes": 100 * 1024 * 1024,
         "installerMinAgeDays": 30,
-        "maxDepth": 6,
+        "maxDepth": 4,
         "followSymlinks": False,
         "minConfidenceForQueue": "medium",
         "workers": 0,
     },
+    # Never enter these (all scanners). Personal media/docs stay off-limits.
+    # Note: Downloads is *not* excluded so the optional old-installer scan can
+    # list top-level .dmg/.pkg files only (it does not deep-walk Downloads).
     "excludePaths": [
+        "~/Documents",
+        "~/Desktop",
         "~/Pictures",
         "~/Movies",
         "~/Music",
@@ -105,10 +122,12 @@ class ScanSettings:
     cache_min_bytes: int = 50 * 1024 * 1024
     cache_min_age_days: int = 3
     large_file_min_bytes: int = 1024 * 1024 * 1024
-    large_file_roots: list[str] = field(default_factory=lambda: ["~"])
+    large_file_roots: list[str] = field(
+        default_factory=lambda: list(DEFAULT_LARGE_FILE_ROOTS)
+    )
     installer_min_bytes: int = 100 * 1024 * 1024
     installer_min_age_days: int = 30
-    max_depth: int = 6
+    max_depth: int = 4
     follow_symlinks: bool = False
     min_confidence_for_queue: Confidence = Confidence.MEDIUM
     workers: int = 0  # 0 = auto (cpu-based)
@@ -259,12 +278,14 @@ def parse_settings(data: dict[str, Any], *, path: Path | None = None) -> Setting
             large_file_min_bytes=_require_int(
                 scan_raw, "largeFileMinBytes", 1024 * 1024 * 1024
             ),
-            large_file_roots=_require_str_list(scan_raw, "largeFileRoots", ["~"]),
+            large_file_roots=_require_str_list(
+                scan_raw, "largeFileRoots", list(DEFAULT_LARGE_FILE_ROOTS)
+            ),
             installer_min_bytes=_require_int(
                 scan_raw, "installerMinBytes", 100 * 1024 * 1024
             ),
             installer_min_age_days=_require_int(scan_raw, "installerMinAgeDays", 30),
-            max_depth=_require_int(scan_raw, "maxDepth", 6, min_value=1),
+            max_depth=_require_int(scan_raw, "maxDepth", 4, min_value=1),
             follow_symlinks=_require_bool(scan_raw, "followSymlinks", False),
             min_confidence_for_queue=min_conf,
             workers=_require_int(scan_raw, "workers", 0, min_value=0),
