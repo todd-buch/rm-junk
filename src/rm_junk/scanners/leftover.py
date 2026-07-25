@@ -3,10 +3,14 @@ from __future__ import annotations
 import plistlib
 from pathlib import Path
 
+from typing import Callable
+
 from rm_junk.config import Settings
 from rm_junk.models import Category, Confidence, Finding
 from rm_junk.path_policy import PathPolicy
 from rm_junk.sizing import entry_size
+
+ProgressFn = Callable[[str], None]
 
 
 def _read_bundle_id(app_path: Path) -> str | None:
@@ -49,10 +53,17 @@ def _plist_domain(name: str) -> str | None:
     return name[: -len(".plist")]
 
 
-def scan_leftovers(settings: Settings, policy: PathPolicy) -> list[Finding]:
+def scan_leftovers(
+    settings: Settings,
+    policy: PathPolicy,
+    *,
+    progress: ProgressFn | None = None,
+) -> list[Finding]:
     """Conservative orphan detection via bundle IDs and dead LaunchAgents."""
     _ = settings  # thresholds unused for now; leftovers are mostly presence-based
     findings: list[Finding] = []
+    if progress:
+        progress("Leftover / orphan scan…")
     installed = installed_bundle_ids()
     home = Path.home()
 

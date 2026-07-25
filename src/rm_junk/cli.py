@@ -45,8 +45,19 @@ def cmd_scan(args: argparse.Namespace) -> int:
         return 1
 
     policy = PathPolicy(settings)
-    print("Scanning… (permission-denied paths are skipped)")
-    findings = run_all_scanners(settings, policy)
+    workers = settings.scan.workers
+    from rm_junk.parallel import default_workers
+
+    w = default_workers(workers or None)
+    print(
+        f"Scanning… ({w} workers; permission-denied paths are skipped)",
+        flush=True,
+    )
+
+    def progress(msg: str) -> None:
+        print(msg, flush=True)
+
+    findings = run_all_scanners(settings, policy, progress=progress)
 
     if args.queue_only:
         findings = [

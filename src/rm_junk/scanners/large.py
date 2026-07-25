@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Callable
 
 from rm_junk.config import Settings, expand_path
 from rm_junk.models import Category, Confidence, Finding
+from rm_junk.parallel import default_workers, map_as_completed
 from rm_junk.path_policy import PathPolicy
 from rm_junk.sizing import dir_size
+
+ProgressFn = Callable[[str], None]
 
 KNOWN_HEAVY_NAMES = {
     ".docker",
@@ -31,21 +35,50 @@ def _is_known_heavy(path: Path) -> bool:
     return False
 
 
-def scan_large(settings: Settings, policy: PathPolicy) -> list[Finding]:
-    """Find large dirs/files under configured roots (parent-only reporting)."""
+def _make_large_finding(path: Path, size: int, *, at_max_depth: bool = False) -> Finding:
+    heavy = _is_known_heavy(path)
+    kind = "folder" if path.is_dir() else "file"
+    reason = f"Large {kind}"
+    if heavy:
+        reason += " (known heavy tool data)"
+    reason += " ≥ threshold"
+    if at_max_depth:
+        reason += " (max depth)"
+    try:
+        path_str = str(path.resolve())
+    except OSError:
+        path_str = str(path)
+    return Finding(
+        path=path_str,
+        size_bytes=size,
+        category=Category.LARGE,
+        confidence=Confidence.HIGH if heavy else Confidence.MEDIUM,
+        reason=reason,
+    )
+
+
+def scan_large(
+    settings: Settings,
+    policy: PathPolicy,
+    *,
+    progress: ProgressFn | None = None,
+) -> list[Finding]:
+    """Find large dirs/files under configured roots.
+
+    Parallelism: each top-level child of a root is walked on its own thread
+    (no nested pools — avoids ThreadPoolExecutor deadlocks).
+    """
     findings: list[Finding] = []
     threshold = settings.scan.large_file_min_bytes
     max_depth = settings.scan.max_depth
-    reported_ancestors: list[Path] = []
+    workers = default_workers(settings.scan.workers or None)
+    home = Path.home().resolve()
 
-    def under_reported(path: Path) -> bool:
-        for ancestor in reported_ancestors:
-            try:
-                path.relative_to(ancestor)
-                return True
-            except ValueError:
-                continue
-        return False
+    def log(msg: str) -> None:
+        if progress:
+            progress(msg)
+
+    log(f"Large-file scan using {workers} worker threads…")
 
     for root_str in settings.scan.large_file_roots:
         try:
@@ -54,17 +87,79 @@ def scan_large(settings: Settings, policy: PathPolicy) -> list[Finding]:
             root = Path(root_str).expanduser()
         if not root.exists() or policy.should_skip(root):
             continue
-        _walk(
-            root,
-            depth=0,
-            max_depth=max_depth,
-            threshold=threshold,
-            policy=policy,
-            findings=findings,
-            reported_ancestors=reported_ancestors,
-            under_reported=under_reported,
+
+        log(f"  Root: {root}")
+
+        # Collect direct children once, then fan out.
+        children: list[Path] = []
+        root_file_findings: list[Finding] = []
+        try:
+            with os.scandir(root) as it:
+                for entry in it:
+                    try:
+                        if not policy.follow_symlinks and entry.is_symlink():
+                            continue
+                        child = Path(entry.path)
+                        if policy.should_skip(child):
+                            continue
+                        if entry.is_file(follow_symlinks=False):
+                            try:
+                                size = entry.stat(follow_symlinks=False).st_size
+                            except OSError:
+                                continue
+                            if size >= threshold:
+                                root_file_findings.append(
+                                    _make_large_finding(child, size)
+                                )
+                        elif entry.is_dir(follow_symlinks=policy.follow_symlinks):
+                            children.append(child)
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+
+        findings.extend(root_file_findings)
+
+        def walk_child(child: Path) -> tuple[Path, list[Finding], int]:
+            reported: list[Path] = []
+            child_findings: list[Finding] = []
+            size = _walk(
+                child,
+                depth=1,
+                max_depth=max_depth,
+                threshold=threshold,
+                policy=policy,
+                findings=child_findings,
+                reported_ancestors=reported,
+                home=home,
+            )
+            return child, child_findings, size
+
+        def on_done(child: Path, result: tuple[Path, list[Finding], int]) -> None:
+            _, child_findings, size = result
+            log(f"    done {child.name} (~{_fmt(size)}, {len(child_findings)} hit(s))")
+
+        results = map_as_completed(
+            walk_child,
+            children,
+            workers=workers,
+            on_done=on_done,
         )
+        for _child, child_findings, _size in results:
+            findings.extend(child_findings)
+
     return findings
+
+
+def _fmt(n: int) -> str:
+    value = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if abs(value) < 1024 or unit == "TB":
+            if unit == "B":
+                return f"{int(value)} {unit}"
+            return f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{n} B"
 
 
 def _walk(
@@ -76,9 +171,23 @@ def _walk(
     policy: PathPolicy,
     findings: list[Finding],
     reported_ancestors: list[Path],
-    under_reported,
+    home: Path,
 ) -> int:
-    """Return total size of path; emit finding if large and not under another report."""
+    """Sequential walk of one subtree (runs inside a worker thread)."""
+
+    def under_reported(p: Path) -> bool:
+        try:
+            resolved = p.resolve()
+        except OSError:
+            resolved = p
+        for ancestor in reported_ancestors:
+            try:
+                resolved.relative_to(ancestor)
+                return True
+            except ValueError:
+                continue
+        return False
+
     if policy.should_skip(path) or under_reported(path):
         return 0
 
@@ -98,45 +207,24 @@ def _walk(
         except OSError:
             return 0
         if size >= threshold and not under_reported(path):
-            heavy = _is_known_heavy(path)
-            findings.append(
-                Finding(
-                    path=str(path.resolve()) if path.exists() else str(path),
-                    size_bytes=size,
-                    category=Category.LARGE,
-                    confidence=Confidence.HIGH if heavy else Confidence.MEDIUM,
-                    reason=(
-                        "Large file"
-                        + (" (known heavy tool data)" if heavy else "")
-                        + f" ≥ threshold"
-                    ),
-                )
-            )
-            reported_ancestors.append(path.resolve())
+            findings.append(_make_large_finding(path, size))
+            try:
+                reported_ancestors.append(path.resolve())
+            except OSError:
+                reported_ancestors.append(path)
         return size
 
     if not is_dir:
         return 0
 
-    # At max depth, measure whole subtree once without deeper findings on children
     if depth >= max_depth:
         size = dir_size(path, policy)
         if size >= threshold and not under_reported(path):
-            heavy = _is_known_heavy(path)
-            findings.append(
-                Finding(
-                    path=str(path.resolve()),
-                    size_bytes=size,
-                    category=Category.LARGE,
-                    confidence=Confidence.HIGH if heavy else Confidence.MEDIUM,
-                    reason=(
-                        "Large folder"
-                        + (" (known heavy tool data)" if heavy else "")
-                        + f" ≥ threshold (max depth)"
-                    ),
-                )
-            )
-            reported_ancestors.append(path.resolve())
+            findings.append(_make_large_finding(path, size, at_max_depth=True))
+            try:
+                reported_ancestors.append(path.resolve())
+            except OSError:
+                reported_ancestors.append(path)
         return size
 
     total = 0
@@ -158,7 +246,7 @@ def _walk(
                         policy=policy,
                         findings=findings,
                         reported_ancestors=reported_ancestors,
-                        under_reported=under_reported,
+                        home=home,
                     )
                     total += child_size
                     child_sizes.append((child, child_size))
@@ -167,29 +255,15 @@ def _walk(
     except OSError:
         return 0
 
-    # Parent-only: if this dir is large and no child was already reported under it,
-    # report the parent once (and suppress is handled via reported_ancestors for
-    # children that already fired). If children already reported, skip parent.
     if total >= threshold and not under_reported(path):
-        # If any direct child was reported, don't also report parent
         child_reported = any(under_reported(c) for c, _ in child_sizes)
         if not child_reported:
-            heavy = _is_known_heavy(path)
-            # Avoid flagging $HOME itself as a finding
-            if path.resolve() != Path.home().resolve():
-                findings.append(
-                    Finding(
-                        path=str(path.resolve()),
-                        size_bytes=total,
-                        category=Category.LARGE,
-                        confidence=Confidence.HIGH if heavy else Confidence.MEDIUM,
-                        reason=(
-                            "Large folder"
-                            + (" (known heavy tool data)" if heavy else "")
-                            + " ≥ threshold"
-                        ),
-                    )
-                )
-                reported_ancestors.append(path.resolve())
+            try:
+                resolved = path.resolve()
+            except OSError:
+                resolved = path
+            if resolved != home:
+                findings.append(_make_large_finding(path, total))
+                reported_ancestors.append(resolved)
 
     return total

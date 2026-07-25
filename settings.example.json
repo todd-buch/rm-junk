@@ -13,7 +13,8 @@
     "installerMinAgeDays": 30,
     "maxDepth": 6,
     "followSymlinks": false,
-    "minConfidenceForQueue": "medium"
+    "minConfidenceForQueue": "medium",
+    "workers": 0
   },
   "excludePaths": [
     "~/Pictures",

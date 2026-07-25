@@ -39,6 +39,7 @@ Edit that file to set:
 | `whitelist` | Paths you chose to keep (also written by `keep`) |
 | `background.enabled` | Allow background / menu bar agent |
 | `background.requireManualApproval` | **Must be true** if background is enabled |
+| `scan.workers` | Thread pool size for scans (`0` = auto, typically `cpu × 4`, max 32) |
 
 ## Usage
 

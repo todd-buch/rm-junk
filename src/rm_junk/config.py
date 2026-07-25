@@ -61,6 +61,7 @@ DEFAULTS: dict[str, Any] = {
         "maxDepth": 6,
         "followSymlinks": False,
         "minConfidenceForQueue": "medium",
+        "workers": 0,
     },
     "excludePaths": [
         "~/Pictures",
@@ -110,6 +111,7 @@ class ScanSettings:
     max_depth: int = 6
     follow_symlinks: bool = False
     min_confidence_for_queue: Confidence = Confidence.MEDIUM
+    workers: int = 0  # 0 = auto (cpu-based)
 
 
 @dataclass
@@ -173,6 +175,7 @@ def settings_to_dict(settings: Settings) -> dict[str, Any]:
             "maxDepth": settings.scan.max_depth,
             "followSymlinks": settings.scan.follow_symlinks,
             "minConfidenceForQueue": settings.scan.min_confidence_for_queue.value,
+            "workers": settings.scan.workers,
         },
         "excludePaths": list(settings.exclude_paths),
         "whitelist": list(settings.whitelist),
@@ -264,6 +267,7 @@ def parse_settings(data: dict[str, Any], *, path: Path | None = None) -> Setting
             max_depth=_require_int(scan_raw, "maxDepth", 6, min_value=1),
             follow_symlinks=_require_bool(scan_raw, "followSymlinks", False),
             min_confidence_for_queue=min_conf,
+            workers=_require_int(scan_raw, "workers", 0, min_value=0),
         ),
         exclude_paths=_require_str_list(merged, "excludePaths", DEFAULTS["excludePaths"]),
         whitelist=_require_str_list(merged, "whitelist", []),
