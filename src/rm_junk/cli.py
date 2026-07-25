@@ -111,7 +111,7 @@ def cmd_list(_args: argparse.Namespace) -> int:
     store = FindingStore()
     pending = store.pending
     if not pending:
-        print("No pending findings. Run: python -m rm_junk scan")
+        print("No pending findings. Run: rm-junk scan")
         return 0
     total = sum(f.size_bytes for f in pending)
     print(f"{len(pending)} pending (~{format_bytes(total)}):\n")
