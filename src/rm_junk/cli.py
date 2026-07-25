@@ -117,6 +117,8 @@ def cmd_list(_args: argparse.Namespace) -> int:
     print(f"{len(pending)} pending (~{format_bytes(total)}):\n")
     for i, finding in enumerate(pending, start=1):
         _print_finding(i, finding)
+    print("\nAct:     rm-junk delete <id> [id…]   |   rm-junk delete --all   |   rm-junk delete --high-confidence")
+    print("         rm-junk keep <id> [id…]     |   rm-junk keep --all")
     return 0
 
 
