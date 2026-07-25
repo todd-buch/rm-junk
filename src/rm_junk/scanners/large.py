@@ -22,6 +22,17 @@ KNOWN_HEAVY_NAMES = {
     "UTM",
 }
 
+# First-level folders under Library that are huge — expand one level so progress
+# and parallelism don't stall on a single "Containers" work unit.
+EXPAND_ALWAYS = {
+    "Library",
+    "Containers",
+    "Application Support",
+    "Group Containers",
+    "Developer",
+    "Caches",
+}
+
 
 def _is_known_heavy(path: Path) -> bool:
     parts = set(path.parts)
@@ -55,6 +66,52 @@ def _make_large_finding(path: Path, size: int, *, at_max_depth: bool = False) ->
     )
 
 
+def _list_dir_children(path: Path, policy: PathPolicy) -> list[Path]:
+    out: list[Path] = []
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
+                try:
+                    if not policy.follow_symlinks and entry.is_symlink():
+                        continue
+                    child = Path(entry.path)
+                    if policy.should_skip(child):
+                        continue
+                    if entry.is_dir(follow_symlinks=policy.follow_symlinks):
+                        out.append(child)
+                except OSError:
+                    continue
+    except OSError:
+        return []
+    return out
+
+
+def _expand_work_items(
+    children: list[Path],
+    policy: PathPolicy,
+    *,
+    max_depth: int,
+) -> list[tuple[Path, int]]:
+    """Return (path, start_depth) work units.
+
+    Expand bulky first-level dirs into their children so one giant folder
+    (e.g. Library/Containers) is not a single 0→done progress tick.
+    """
+    items: list[tuple[Path, int]] = []
+    for child in children:
+        should_expand = child.name in EXPAND_ALWAYS or any(
+            part in EXPAND_ALWAYS for part in child.parts[-3:]
+        )
+        if should_expand and max_depth >= 2:
+            subs = _list_dir_children(child, policy)
+            if subs:
+                for sub in subs:
+                    items.append((sub, 2))
+                continue
+        items.append((child, 1))
+    return items
+
+
 def scan_large(
     settings: Settings,
     policy: PathPolicy,
@@ -63,8 +120,7 @@ def scan_large(
 ) -> list[Finding]:
     """Find large dirs/files under configured roots.
 
-    Parallelism: each top-level child of a root is walked on its own thread
-    (no nested pools — avoids ThreadPoolExecutor deadlocks).
+    Parallelism: independent subtrees on worker threads (no nested pools).
     """
     prog: ScanProgress = progress or NullProgress()
     findings: list[Finding] = []
@@ -116,15 +172,33 @@ def scan_large(
         if not children:
             continue
 
-        prog.add_work(len(children))
-        prog.log(f"  walking {len(children)} top-level folders…")
+        # If root itself is Library-like, expand first-level into second-level.
+        if root.name in EXPAND_ALWAYS or root.name == "Library":
+            work = _expand_work_items(children, policy, max_depth=max_depth)
+        else:
+            # Still expand known heavy child names (e.g. Containers under Library)
+            work = _expand_work_items(children, policy, max_depth=max_depth)
 
-        def walk_child(child: Path) -> tuple[Path, list[Finding], int]:
+        if not work:
+            continue
+
+        prog.add_work(len(work))
+        prog.log(f"  walking {len(work)} folders under {root}…")
+
+        def walk_one(item: tuple[Path, int]) -> tuple[Path, list[Finding], int]:
+            path, start_depth = item
+            label = path.name
+            try:
+                # Prefer parent/name for context when expanded
+                label = f"{path.parent.name}/{path.name}"
+            except Exception:
+                pass
+            prog.status(f"scanning {label}…")
             reported: list[Path] = []
             child_findings: list[Finding] = []
             size = _walk(
-                child,
-                depth=1,
+                path,
+                depth=start_depth,
                 max_depth=max_depth,
                 threshold=threshold,
                 policy=policy,
@@ -132,27 +206,31 @@ def scan_large(
                 reported_ancestors=reported,
                 home=home,
             )
-            return child, child_findings, size
+            return path, child_findings, size
 
         def on_done(
-            child: Path, result: tuple[Path, list[Finding], int]
+            item: tuple[Path, int], result: tuple[Path, list[Finding], int]
         ) -> None:
-            _c, child_findings, size = result
+            path, child_findings, size = result
+            try:
+                label = f"{path.parent.name}/{path.name}"
+            except Exception:
+                label = path.name
             prog.tick(
                 1,
-                item=f"{child.name} ({_fmt(size)}, {len(child_findings)} hit)",
+                item=f"{label} ({_fmt(size)})",
             )
             prog.log(
-                f"    done {child.name} (~{_fmt(size)}, {len(child_findings)} hit(s))"
+                f"    done {label} (~{_fmt(size)}, {len(child_findings)} hit(s))"
             )
 
         results = map_as_completed(
-            walk_child,
-            children,
+            walk_one,
+            work,
             workers=workers,
             on_done=on_done,
         )
-        for _child, child_findings, _size in results:
+        for _path, child_findings, _size in results:
             findings.extend(child_findings)
 
     return findings

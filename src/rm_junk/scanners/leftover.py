@@ -64,9 +64,11 @@ def scan_leftovers(
 
     # Lightweight phases: 3 work units (agents, saved state, prefs)
     prog.add_work(3)
+    prog.status("installed apps…")
     installed = installed_bundle_ids()
     home = Path.home()
 
+    prog.status("LaunchAgents…")
     agents = home / "Library" / "LaunchAgents"
     if agents.is_dir() and not policy.should_skip(agents):
         for entry in policy.safe_scandir(agents):
@@ -102,6 +104,7 @@ def scan_leftovers(
                 continue
     prog.tick(1, item="LaunchAgents")
 
+    prog.status("Saved Application State…")
     saved = home / "Library" / "Saved Application State"
     if saved.is_dir() and not policy.should_skip(saved):
         for entry in policy.safe_scandir(saved):
@@ -129,6 +132,7 @@ def scan_leftovers(
                 continue
     prog.tick(1, item="Saved Application State")
 
+    prog.status("Preferences…")
     prefs = home / "Library" / "Preferences"
     if prefs.is_dir() and not policy.should_skip(prefs):
         for entry in policy.safe_scandir(prefs):

@@ -26,20 +26,13 @@ def test_progress_bar_add_total():
     assert bar.n == 5
 
 
-def test_progress_bar_hides_items_unless_enabled():
-    buf = StringIO()
-    bar = ProgressBar(2, desc="X", file=buf, enabled=True, show_items=False)
-    bar.enabled = False  # avoid TTY assumptions
-    bar.update(1, item="secret")
-    assert bar._item == "" or not bar.show_items
-
-
 def test_null_progress():
     p = NullProgress()
     p.log("silent")
     p.phase("Caches")
     p.add_work(2)
     p.tick(1, item="a")
+    p.status("working")
     p.tick(1)
     p.close()
 
@@ -57,11 +50,28 @@ def test_terminal_progress_debug_logs_only_when_debug():
     p2.close()
 
 
-def test_terminal_progress_ticks():
+def test_terminal_phase_resets_bar():
+    """Each phase gets a fresh bar so early work cannot pin percent near 100%."""
     buf = StringIO()
-    p = TerminalProgress(file=buf, enabled=False, debug=False)
+    p = TerminalProgress(file=buf, enabled=True, debug=False)
+    # Force non-TTY path still creates bars with enabled from isatty;
+    # drive via internal API after creating with enabled True on StringIO
+    # which disables rendering — still tracks n/total.
+    p.enabled = True
     p.phase("Caches")
-    p.add_work(3)
-    p.tick(1)
-    p.tick(2)
+    assert p._bar is not None
+    p.add_work(10)
+    for _ in range(10):
+        p.tick(1)
+    assert p._bar.n == 10
+    assert p._bar.total == 10
+
+    p.phase("Large files")
+    assert p._bar is not None
+    assert p._bar.n == 0
+    assert p._bar.total == 0
+    p.add_work(5)
+    assert p._bar.total == 5
+    p.tick(1, item="Containers/foo")
+    assert p._bar.n == 1
     p.close()

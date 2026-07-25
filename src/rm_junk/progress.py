@@ -37,7 +37,7 @@ class ProgressBar:
         desc: str = "",
         file: TextIO | None = None,
         enabled: bool = True,
-        show_items: bool = False,
+        show_items: bool = True,
     ) -> None:
         self.total = max(0, total)
         self.desc = desc
@@ -59,13 +59,22 @@ class ProgressBar:
             return False
 
     def add_total(self, n: int) -> None:
-        """Grow expected work (e.g. after discovering more paths to scan)."""
         if n <= 0:
             return
         with self._lock:
             if self._closed:
                 return
             self.total += n
+            if self.enabled:
+                self._render()
+
+    def set_item(self, item: str) -> None:
+        """Update the label without advancing (e.g. currently scanning X)."""
+        with self._lock:
+            if self._closed:
+                return
+            if self.show_items:
+                self._item = item
             if self.enabled:
                 self._render()
 
@@ -137,7 +146,7 @@ class ProgressBar:
             item = f"  {self._item}"
 
         fixed = len(prefix) + len(tail) + 5
-        bar_width = max(10, min(30, width - fixed - (24 if item else 4)))
+        bar_width = max(10, min(30, width - fixed - (28 if item else 4)))
         if self.total:
             filled = int(bar_width * frac)
             bar = "█" * filled + "░" * (bar_width - filled)
@@ -157,35 +166,27 @@ class ProgressBar:
 
 
 class ScanProgress(Protocol):
-    """Progress reporting for scanners."""
-
     @property
     def debug(self) -> bool: ...
 
-    def log(self, msg: str) -> None:
-        """Debug-only detail line (no-op unless debug is on)."""
+    def log(self, msg: str) -> None: ...
+
+    def phase(self, name: str) -> None: ...
+
+    def add_work(self, n: int) -> None: ...
+
+    def tick(self, n: int = 1, *, item: str | None = None) -> None: ...
+
+    def status(self, item: str) -> None:
+        """Show what is currently being scanned (no progress advance)."""
         ...
 
-    def phase(self, name: str) -> None:
-        """Set the current high-level phase label on the main bar."""
-        ...
-
-    def add_work(self, n: int) -> None:
-        """Announce n more work units for the main progress bar."""
-        ...
-
-    def tick(self, n: int = 1, *, item: str | None = None) -> None:
-        """Advance the main progress bar by n units."""
-        ...
-
-    def close(self) -> None:
-        """Finish the main progress bar."""
-        ...
+    def close(self) -> None: ...
 
 
 @dataclass
 class TerminalProgress:
-    """One general progress bar; verbose logs only when debug=True."""
+    """Progress bar resets each phase so early fast work cannot fill the bar."""
 
     file: TextIO | None = None
     enabled: bool = True
@@ -194,37 +195,54 @@ class TerminalProgress:
 
     def __post_init__(self) -> None:
         self.file = self.file or sys.stderr
-        if self.enabled:
+
+    def _ensure_bar(self, desc: str) -> ProgressBar:
+        assert self.file is not None
+        if self._bar is None:
             self._bar = ProgressBar(
                 0,
-                desc="Scan",
+                desc=desc,
                 file=self.file,
-                enabled=True,
-                show_items=self.debug,
+                enabled=self.enabled,
+                # Always show the *current* path snippet; not a history dump.
+                show_items=True,
             )
+        return self._bar
 
     def log(self, msg: str) -> None:
         if not self.debug:
             return
         assert self.file is not None
-        # Move off the bar line, print, bar will redraw on next tick
         if self._bar and self._bar.enabled:
             self.file.write("\n")
         self.file.write(f"{msg}\n")
         self.file.flush()
 
     def phase(self, name: str) -> None:
+        """Start a new phase bar at 0% (closes the previous phase bar)."""
         self.log(f"→ {name}")
-        if self._bar:
-            self._bar.set_description(name)
+        if not self.enabled:
+            return
+        if self._bar is not None:
+            self._bar.close()
+            self._bar = None
+        self._ensure_bar(name)
 
     def add_work(self, n: int) -> None:
-        if self._bar:
-            self._bar.add_total(n)
+        if not self.enabled:
+            return
+        bar = self._ensure_bar(self._bar.desc if self._bar else "Scan")
+        bar.add_total(n)
 
     def tick(self, n: int = 1, *, item: str | None = None) -> None:
-        if self._bar:
-            self._bar.update(n, item=item)
+        if not self.enabled or self._bar is None:
+            return
+        self._bar.update(n, item=item)
+
+    def status(self, item: str) -> None:
+        if not self.enabled or self._bar is None:
+            return
+        self._bar.set_item(item)
 
     def close(self) -> None:
         if self._bar:
@@ -233,8 +251,6 @@ class TerminalProgress:
 
 
 class NullProgress:
-    """Silent progress for tests / --no-progress."""
-
     debug: bool = False
 
     def log(self, msg: str) -> None:
@@ -247,6 +263,9 @@ class NullProgress:
         return None
 
     def tick(self, n: int = 1, *, item: str | None = None) -> None:
+        return None
+
+    def status(self, item: str) -> None:
         return None
 
     def close(self) -> None:

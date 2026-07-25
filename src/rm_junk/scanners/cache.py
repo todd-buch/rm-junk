@@ -58,6 +58,7 @@ def _scan_cache_root(
     prog.log(f"  sizing {len(candidates)} dirs under {root}")
 
     def measure(child: Path) -> Finding | None:
+        prog.status(f"sizing {child.name}…")
         try:
             size = entry_size(child, policy)
             if size < min_bytes:
