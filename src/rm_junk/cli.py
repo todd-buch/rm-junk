@@ -102,7 +102,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
     store.replace_pending_with(findings)
     print(f"Saved {len(findings)} pending item(s) → {store.path}")
     print("Review:  rm-junk list")
-    print("Act:     rm-junk delete <id> [id…]   |   rm-junk delete --all")
+    print("Act:     rm-junk delete <id> [id…]   |   rm-junk delete --all   |   rm-junk delete --high-confidence")
     print("         rm-junk keep <id> [id…]     |   rm-junk keep --all")
     return 0
 
@@ -146,9 +146,15 @@ def cmd_delete(args: argparse.Namespace) -> int:
         if not targets:
             print("No pending findings to delete.")
             return 0
+    elif args.high_confidence:
+        from rm_junk.models import Confidence
+        targets = [f for f in store.pending if f.confidence == Confidence.HIGH]
+        if not targets:
+            print("No pending high-confidence findings to delete.")
+            return 0
     else:
         if not args.ids:
-            print("Pass one or more ids, or use --all.", file=sys.stderr)
+            print("Pass one or more ids, or use --all or --high-confidence.", file=sys.stderr)
             return 1
         targets, missing = _resolve_pending(store, args.ids)
         for fid in missing:
@@ -297,6 +303,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--all",
         action="store_true",
         help="Delete every remaining pending finding",
+    )
+    p_del.add_argument(
+        "--high-confidence",
+        action="store_true",
+        help="Delete every remaining pending finding with high confidence",
     )
     p_del.add_argument("-y", "--yes", action="store_true", help="Skip confirmation")
     p_del.set_defaults(func=cmd_delete)

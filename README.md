@@ -33,6 +33,7 @@ rm-junk scan                       # save findings
 rm-junk list
 rm-junk delete <id> [id...]        # Trash specific finding(s) (confirms)
 rm-junk delete --all               # Trash all remaining pending findings
+rm-junk delete --high-confidence   # Trash only high confidence findings (confirms)
 rm-junk keep <id> [id...]          # Whitelist specific finding(s)
 rm-junk keep --all                 # Whitelist all remaining pending findings
 ```
@@ -62,7 +63,7 @@ rm-junk scan --no-progress      # quiet
 | `init` | Create `settings.json` if missing |
 | `scan` | Run scanners; print + optionally save queue |
 | `list` | Pending findings |
-| `delete <ids...> / --all` | Trash one or more findings by ID, or `--all` remaining pending (`-y` skips confirm) |
+| `delete <ids...> / --all / --high-confidence` | Trash findings by ID, `--all` remaining, or `--high-confidence` only (`-y` skips confirm) |
 | `keep <ids...> / --all` | Whitelist one or more findings by ID, or `--all` remaining pending |
 | `paths` | Show config/data locations |
 
