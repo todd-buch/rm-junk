@@ -122,4 +122,4 @@ pytest
 | Branch | Scope |
 |--------|--------|
 | **`terminal/cli-v1`** (this) | Terminal-only CLI |
-| Future app branch | Menu bar / `.app` packaging — see `docs/mac-app-plan.md` |
+| Future app branch | Menu bar / `.app` packaging — see [`docs/mac-app-plan.md`](docs/mac-app-plan.md) |
